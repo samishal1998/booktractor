@@ -1,0 +1,32 @@
+{
+  "version": "0.0.0",
+  "name": "@booktractor/app",
+  "main": "index.ts",
+  "imports": {
+    "#features/*": "./features/*.ts",
+    "#navigation/*": "./navigation/*.ts",
+    "#provider/*": "./provider/*.ts",
+    "#lib/*": "./lib/*.ts",
+    "#trpc": "./lib/trpc.ts"
+  },
+  "dependencies": {
+    "@booktractor/trpc": "workspace:*",
+    "@react-navigation/native": "^7.0.15",
+    "@react-navigation/native-stack": "^7.2.1",
+    "@tanstack/react-query": "^5.90.7",
+    "@trpc/client": "^11.7.1",
+    "@trpc/tanstack-react-query": "^11.7.1",
+    "dripsy": "^4.3.3",
+    "moti": "^0.30.0",
+    "solito": "next"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-native": "0.81.4"
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "@types/react-native": "^0.73.0"
+  }
+}

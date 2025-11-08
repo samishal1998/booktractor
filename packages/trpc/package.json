@@ -1,0 +1,14 @@
+{
+  "version": "0.0.0",
+  "name": "@booktractor/trpc",
+  "main": "index.ts",
+  "sideEffects": false,
+  "exports": {
+    "./routers": "./src/routers/index.ts"
+  },
+  "dependencies": {
+    "@booktractor/db": "workspace:*",
+    "@trpc/server": "^11.7.1",
+    "superjson": "^2.2.5"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": "0.0.0",
+  "name": "@booktractor/db",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./schemas": "./src/schemas/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "drizzle-orm": "^0.44.7"
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "drizzle-kit": "^0.31.6",
+    "tsx": "^4.20.6"
+  }
+}
