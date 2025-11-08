@@ -18,6 +18,9 @@ config.resolver.nodeModulesPaths = [
 ]
 config.resolver.disableHierarchicalLookup = true
 
+// Enable package exports for BetterAuth and other packages
+config.resolver.unstable_enablePackageExports = true
+
 config.transformer.getTransformOptions = async () => ({
   transform: {
     experimentalImportSupport: false,

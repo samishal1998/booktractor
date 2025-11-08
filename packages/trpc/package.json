@@ -4,7 +4,8 @@
   "main": "index.ts",
   "sideEffects": false,
   "exports": {
-    "./routers": "./src/routers/index.ts"
+    "./routers": "./src/routers/index.ts",
+    "./trpc": "./src/trpc.ts"
   },
   "dependencies": {
     "@booktractor/db": "workspace:*",

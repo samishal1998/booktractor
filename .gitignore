@@ -79,3 +79,11 @@ build/**
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Environment files
+.env
+.env*.local
+!.env*.example
+
+# Database migrations
+packages/db/drizzle/

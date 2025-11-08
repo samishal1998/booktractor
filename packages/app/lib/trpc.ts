@@ -1,16 +1,7 @@
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import type { AppRouter } from '@booktractor/trpc/routers'
-import superjson from 'superjson'
 import { createTRPCContext } from '@trpc/tanstack-react-query'
 import { QueryClient } from '@tanstack/react-query'
-export const trpcClient = createTRPCClient<AppRouter>({
-  links: [
-    httpBatchLink({
-      url: 'http://localhost:3000/api/trpc',
-      transformer: superjson,
-    }),
-  ],
-})
+
 
 export const { TRPCProvider, useTRPC, useTRPCClient } =
   createTRPCContext<AppRouter>()

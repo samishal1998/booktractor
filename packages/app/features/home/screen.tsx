@@ -45,6 +45,16 @@ export function HomeScreen() {
         >
           Link
         </TextLink>
+        <TextLink
+          href="/auth/login"
+          style={{
+            fontSize: 16,
+            fontWeight: 'bold',
+            color: 'blue',
+          }}
+        >
+          Sign In
+        </TextLink>
       </View>
     </View>
   )

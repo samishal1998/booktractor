@@ -1,12 +1,15 @@
 {
   "expo": {
-    "name": "solito-blank",
-    "slug": "solito-blank",
+    "name": "Booktractor",
+    "slug": "booktractor",
     "version": "1.0.0",
-    "scheme": "solito-blank",
+    "scheme": "booktractor",
     "platforms": ["ios", "android"],
     "ios": {
-      "bundleIdentifier": "com.solito.blank"
+      "bundleIdentifier": "com.booktractor.app"
+    },
+    "android": {
+      "package": "com.booktractor.app"
     },
     "newArchEnabled": true,
     "experiments": {

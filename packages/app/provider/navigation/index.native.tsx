@@ -17,6 +17,8 @@ export function NavigationProvider({
             screens: {
               home: '',
               'user-detail': 'users/:id',
+              'auth-login': 'auth/login',
+              'auth-register': 'auth/register',
             },
           },
         }),

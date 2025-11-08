@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import { publicProcedure, router } from '../trpc';
 import { db } from '@booktractor/db/client';
-import { usersTable } from '@booktractor/db/schemas';
+import { users as usersTable } from '@booktractor/db/schemas';
 import { eq } from 'drizzle-orm';
 
 export const appRouter = router({
   user: {
-    dummy: publicProcedure.query(async () => {
+    dummy: publicProcedure.query(async ({ ctx }) => {
       return {
         id: '1',
         name: 'John Doe',
         email: 'john.doe@example.com',
-      }
+        ctx: ctx.user,
+      } 
     }),
     list: publicProcedure.query(async () => {
       // Retrieve users from a datasource, this is an imaginary database
@@ -23,19 +24,9 @@ export const appRouter = router({
       const { input } = opts;
       //      ^?
       // Retrieve the user with the given ID
-      const user = await db.select().from(usersTable).where(eq(usersTable.id, Number(input)));
+      const user = await db.select().from(usersTable).where(eq(usersTable.id, input.id));
       return user[0];
     }),
-    create: publicProcedure
-      .input(z.object({ name: z.string(), email: z.string() }))
-      .mutation(async (opts) => {
-        const { input } = opts;
-        //      ^?
-        // Create a new user in the database
-        const user = await db.insert(usersTable).values({ name: input.name, email: input.email }).returning();
-        //    ^?
-        return user;
-      }),
   },
   examples: {
     iterable: publicProcedure.query(async function* () {
