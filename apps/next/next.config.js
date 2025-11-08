@@ -75,6 +75,13 @@ module.exports = {
     'react-native-reanimated',
     'moti',
     'react-native-gesture-handler',
+    "@booktractor/app",
+    "@booktractor/trpc",
+    "@booktractor/db",
+    "app",
+
+    "nativewind",
+     "react-native-css-interop",
   ],
 
   compiler: {

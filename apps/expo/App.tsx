@@ -1,5 +1,7 @@
-import { NativeNavigation } from 'app/navigation/native'
-import { Provider } from 'app/provider'
+import './globals.css'
+
+import { NativeNavigation } from '@booktractor/app/navigation/native'
+import { Provider } from '@booktractor/app/provider'
 
 export default function App() {
   return (

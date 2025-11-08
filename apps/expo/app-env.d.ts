@@ -1,1 +1,1 @@
-/// <reference types="app/rnw-overrides" />
+/// <reference types="@booktractor/app/rnw-overrides" />

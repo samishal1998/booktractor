@@ -4,7 +4,7 @@
     "slug": "booktractor",
     "version": "1.0.0",
     "scheme": "booktractor",
-    "platforms": ["ios", "android"],
+    "platforms": ["ios", "android", "web"],
     "ios": {
       "bundleIdentifier": "com.booktractor.app"
     },
@@ -14,6 +14,9 @@
     "newArchEnabled": true,
     "experiments": {
       "reactCanary": true
+    },
+    "web": {
+      "bundler": "metro"
     }
   }
 }

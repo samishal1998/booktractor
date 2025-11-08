@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSession, signIn } from '../../../lib/auth-client';
+import { useEffect } from 'react';
 import { useRouter } from 'solito/navigation';
 
 export function LoginScreen() {
@@ -12,11 +13,13 @@ export function LoginScreen() {
   const { data: session } = useSession();
   const router = useRouter();
 
-  // Redirect if already logged in
-  if (session) {
-    router.replace('/');
-    return null;
-  }
+  useEffect(() => {
+    if (session) {
+      router.replace('/');
+      return;
+    }
+  }, [session, router]);
+
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
