@@ -17,8 +17,13 @@ export function NavigationProvider({
             screens: {
               home: '',
               'user-detail': 'users/:id',
+              'profile': 'profile',
               'auth-login': 'auth/login',
               'auth-register': 'auth/register',
+              'machines': 'machines',
+              'machine-detail': 'machines/:id',
+              'bookings': 'bookings',
+              'booking-detail': 'bookings/:id',
             },
           },
         }),

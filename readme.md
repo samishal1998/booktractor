@@ -1,95 +1,266 @@
-# Blank Solito Example Monorepo 🕴
+# Booktractor 📚
 
-```sh
-npx create-solito-app@latest my-solito-app
+A cross-platform application built with Solito, featuring full-stack authentication with BetterAuth, tRPC, and Drizzle ORM.
+
+## Tech Stack
+
+- **[Solito](https://solito.dev)** - Universal navigation for React Native + Next.js
+- **[Next.js 16](https://nextjs.org)** - React framework for the web
+- **[Expo 54](https://expo.dev)** - React Native framework for iOS/Android
+- **[BetterAuth](https://better-auth.com)** - Full-featured authentication
+- **[tRPC](https://trpc.io)** - End-to-end typesafe APIs
+- **[Drizzle ORM](https://orm.drizzle.team)** - TypeScript ORM for SQL databases
+- **[React 19](https://react.dev)** - UI library
+- **[React Navigation 7](https://reactnavigation.org)** - Native navigation
+
+## Features
+
+- ✅ **Cross-platform authentication** (Web + Mobile)
+- ✅ **Email/Password authentication**
+- ✅ **Google OAuth (SSO)**
+- ✅ **Type-safe API layer** with tRPC
+- ✅ **Database ORM** with Drizzle + PostgreSQL
+- ✅ **Platform-specific code** with `.native.tsx` files
+- ✅ **Monorepo structure** for code sharing
+- ✅ **Session management** (Cookies on web, SecureStore on native)
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- Yarn 4.7.0+
+- PostgreSQL database ([Neon](https://neon.tech) recommended)
+- Google OAuth credentials (optional, for SSO)
+
+### Installation
+
+```bash
+# Install dependencies
+yarn install
+
+# Set up environment variables
+cp apps/next/.env.local.example apps/next/.env.local
+cp apps/expo/.env.example apps/expo/.env
+
+# Edit .env files with your configuration
+# See SETUP.md for detailed instructions
 ```
 
-👾 [View the website](https://example.solito.dev)
+### Database Setup
 
-## ⚡️ Instantly clone & deploy
+```bash
+cd packages/db
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fnandorojo%2Fsolito%2Ftree%2Fmaster%2Fexample-monorepos%2Fblank&env=ENABLE_ROOT_PATH_BUILD_CACHE&root-directory=apps/next&envDescription=Set%20this%20environment%20variable%20to%201%20for%20Turborepo%20to%20cache%20your%20node_modules.&envLink=https%3A%2F%2Ftwitter.com%2Fjaredpalmer%2Fstatus%2F1488954563533189124&project-name=solito-app&repo-name=solito-app&demo-title=Solito%20App%20%E2%9A%A1%EF%B8%8F&demo-description=React%20Native%20%2B%20Next.js%20starter%20with%20Solito.%20Made%20by%20Fernando%20Rojo.&demo-url=https%3A%2F%2Fsolito.dev%2Fstarter&demo-image=https%3A%2F%2Fsolito.dev%2Fimg%2Fog.png&build-command=cd+..%2F..%3Bnpx+turbo+run+build+--filter%3Dnext-app)
+# Generate migrations
+yarn drizzle-kit generate
 
-## 🔦 About
-
-This monorepo is a blank(ish) starter for an Expo + Next.js app.
-
-While it's pretty barebones, it does a lot of the annoying config for you. The folder structure is opinionated, based on my long experience building for this stack.
-
-## 📦 Included packages
-
-- `solito` for cross-platform navigation
-- `moti` for animations
-- Expo SDK 53
-- Next.js 15
-- React Navigation 7
-- React 19 (read more below)
-- React Compiler
-
-For more, see the [compatibility docs](https://solito.dev/compatibility).
-
-## 🗂 Folder layout
-
-- `apps` entry points for each app
-
-  - `expo`
-  - `next`
-
-- `packages` shared packages across apps
-  - `app` you'll be importing most files from `app/`
-    - `features` (don't use a `screens` folder. organize by feature.)
-    - `provider` (all the providers that wrap the app, and some no-ops for Web.)
-    - `navigation` Next.js has a `pages/` folder. React Native doesn't. This folder contains navigation-related code for RN. You may use it for any navigation code, such as custom links.
-
-You can add other folders inside of `packages/` if you know what you're doing and have a good reason to.
-
-## 🏁 Start the app
-
-- Install dependencies: `yarn`
-
-- Next.js local dev: `yarn web`
-  - Runs `yarn next`
-- Expo local dev:
-  - First, build a dev client onto your device or simulator
-    - `cd apps/expo`
-    - Then, either `expo run:ios`, or `eas build`
-  - After building the dev client, from the root of the monorepo...
-    - `yarn native` (This runs `expo start --dev-client`)
-
-## 🆕 Add new dependencies
-
-### Pure JS dependencies
-
-If you're installing a JavaScript-only dependency that will be used across platforms, install it in `packages/app`:
-
-```sh
-cd packages/app
-yarn add date-fns
-cd ../..
-yarn
+# Apply migrations
+yarn drizzle-kit migrate
 ```
 
-### Native dependencies
+### Run the App
 
-If you're installing a library with any native code, you must install it in `apps/expo`:
-
-```sh
-cd apps/expo
-yarn add react-native-reanimated
-
-cd ../..
-yarn
+**Web (Next.js):**
+```bash
+yarn web
+# Visit http://localhost:3000
 ```
 
-You can also install the native library inside of `packages/app` if you want to get autoimport for that package inside of the `app` folder. However, you need to be careful and install the _exact_ same version in both packages. If the versions mismatch at all, you'll potentially get terrible bugs. This is a classic monorepo issue. I use `lerna-update-wizard` to help with this (you don't need to use Lerna to use that lib).
+**Mobile (Expo):**
+```bash
+yarn native
+# Press 'i' for iOS or 'a' for Android
+```
 
-## 🎙 About the creator
+## Project Structure
 
-Follow Fernando Rojo on Twitter: [@FernandoTheRojo](https://twitter.com/fernandotherojo)
+```
+booktractor/
+├── apps/
+│   ├── expo/           # React Native app
+│   └── next/           # Next.js web app
+│       └── pages/
+│           └── api/
+│               ├── auth/     # BetterAuth endpoints
+│               └── trpc/     # tRPC endpoints
+├── packages/
+│   ├── app/            # Shared UI & business logic
+│   │   ├── features/   # Feature-based screens
+│   │   ├── lib/        # Utilities & clients
+│   │   └── provider/   # Context providers
+│   ├── db/             # Database schemas & config
+│   │   └── src/
+│   │       ├── schemas/      # Drizzle schemas
+│   │       └── auth-config.ts # BetterAuth setup
+│   └── trpc/           # API layer
+│       └── src/
+│           └── routers/      # tRPC routers
+├── CLAUDE.md           # AI development guide
+├── SETUP.md            # Detailed setup instructions
+└── README.md           # This file
+```
 
-## 🧐 Why use Expo + Next.js?
+## Authentication Flow
 
-See my talk about this topic at Next.js Conf 2021:
+### Registration
+1. User enters name, email, and password
+2. BetterAuth creates user in database
+3. Session created automatically
+4. User redirected to home page
 
-<a href="https://www.youtube.com/watch?v=0lnbdRweJtA"><img width="1332" alt="image" src="https://user-images.githubusercontent.com/13172299/157299915-b633e083-f271-48c6-a262-7b7eef765be5.png">
-</a>
+### Sign In
+- **Email/Password**: Direct authentication via BetterAuth
+- **Google OAuth**: Redirects to Google, creates/links account
+
+### Session Management
+- **Web**: HTTP-only cookies (secure)
+- **Mobile**: Expo SecureStore (encrypted)
+
+## Development
+
+### Adding a New Feature
+
+1. **Create feature in `packages/app/features/`**
+```typescript
+// packages/app/features/profile/screen.tsx
+export function ProfileScreen() {
+  return <View><Text>Profile</Text></View>
+}
+```
+
+2. **Add web page in `apps/next/pages/`**
+```typescript
+// apps/next/pages/profile.tsx
+import { ProfileScreen } from '@booktractor/app/features/profile/screen'
+export default ProfileScreen
+```
+
+3. **Update native navigation**
+```typescript
+// packages/app/provider/navigation/index.native.tsx
+screens: {
+  'profile': 'profile',
+}
+```
+
+### Platform-Specific Code
+
+Use `.native.tsx` for React Native specific implementations:
+
+```
+auth-client.tsx        # Web version
+auth-client.native.tsx # Native version
+```
+
+The bundler automatically picks the right file based on platform.
+
+### Creating Protected Routes
+
+Use `protectedProcedure` in tRPC:
+
+```typescript
+// packages/trpc/src/routers/user.ts
+export const userRouter = router({
+  me: protectedProcedure.query(({ ctx }) => {
+    return ctx.user // Guaranteed to exist
+  }),
+})
+```
+
+Use `useSession` in components:
+
+```typescript
+import { useSession } from '#lib/auth-client'
+
+function MyComponent() {
+  const { data: session } = useSession()
+
+  if (!session) return <Text>Please sign in</Text>
+
+  return <Text>Hello {session.user.name}</Text>
+}
+```
+
+## Documentation
+
+- **[SETUP.md](./SETUP.md)** - Complete setup guide with troubleshooting
+- **[CLAUDE.md](./CLAUDE.md)** - Development guide and architecture details
+
+## Resources
+
+- [Solito Documentation](https://solito.dev)
+- [BetterAuth Documentation](https://www.better-auth.com)
+- [tRPC Documentation](https://trpc.io)
+- [Drizzle ORM Documentation](https://orm.drizzle.team)
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Expo Documentation](https://docs.expo.dev)
+
+## Scripts
+
+```bash
+# Development
+yarn web          # Start Next.js dev server
+yarn native       # Start Expo dev server
+
+# Database
+cd packages/db
+yarn drizzle-kit generate   # Generate migrations
+yarn drizzle-kit migrate    # Apply migrations
+yarn drizzle-kit studio     # Open database UI
+
+# Dependencies
+yarn workspace @booktractor/app add <package>       # Add to app package
+yarn workspace @booktractor/next-app add <package>  # Add to Next.js
+yarn workspace expo-app add <package>               # Add to Expo
+```
+
+## Environment Variables
+
+### Next.js (`.env.local`)
+- `DATABASE_URL` - PostgreSQL connection string
+- `BETTER_AUTH_SECRET` - Random 32+ character secret
+- `BETTER_AUTH_URL` - Your app URL
+- `GOOGLE_CLIENT_ID` - Google OAuth client ID
+- `GOOGLE_CLIENT_SECRET` - Google OAuth secret
+- `NEXT_PUBLIC_API_URL` - API base URL
+
+### Expo (`.env`)
+- `EXPO_PUBLIC_API_URL` - Next.js server URL
+- `EXPO_PUBLIC_APP_SCHEME` - Deep link scheme
+
+See `.env.example` files for details.
+
+## Troubleshooting
+
+**Database Connection Issues:**
+- Verify `DATABASE_URL` in `.env.local`
+- Check database is running and accessible
+
+**Mobile Can't Connect:**
+- Update `EXPO_PUBLIC_API_URL` to your computer's local IP
+- Ensure Next.js server is running
+- Check firewall settings
+
+**OAuth Not Working:**
+- Verify redirect URIs in Google Console
+- Check client ID and secret are correct
+- Ensure HTTPS in production
+
+See [SETUP.md](./SETUP.md#troubleshooting) for more help.
+
+## Next Steps
+
+1. Set up your database (Neon recommended)
+2. Configure environment variables
+3. Run database migrations
+4. Set up Google OAuth (optional)
+5. Start building your features!
+
+## License
+
+MIT
+
+---
+
+Built with ❤️ using [Solito](https://solito.dev)

@@ -4,7 +4,16 @@ import { db } from '@booktractor/db/client';
 import { users as usersTable } from '@booktractor/db/schemas';
 import { eq } from 'drizzle-orm';
 
+// Import business routers
+import { machinesRouter } from './machines';
+import { bookingsRouter } from './bookings';
+import { availabilityRouter } from './availability';
+import { ownerRouter } from './owner';
+import { clientRouter } from './client';
+import { userProfileRouter } from './user-profile';
+
 export const appRouter = router({
+  // Legacy user endpoints (can be removed later)
   user: {
     dummy: publicProcedure.query(async ({ ctx }) => {
       return {
@@ -12,7 +21,7 @@ export const appRouter = router({
         name: 'John Doe',
         email: 'john.doe@example.com',
         ctx: ctx.user,
-      } 
+      }
     }),
     list: publicProcedure.query(async () => {
       // Retrieve users from a datasource, this is an imaginary database
@@ -28,6 +37,16 @@ export const appRouter = router({
       return user[0];
     }),
   },
+
+  // Business domain routers
+  machines: machinesRouter,
+  bookings: bookingsRouter,
+  availability: availabilityRouter,
+  owner: ownerRouter,
+  client: clientRouter,
+  profile: userProfileRouter,
+
+  // Example endpoints (can be removed later)
   examples: {
     iterable: publicProcedure.query(async function* () {
       for (let i = 0; i < 3; i++) {

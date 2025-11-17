@@ -21,6 +21,7 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins: [
+    '*',
     'http://localhost:3000',
     'booktractor://', // Expo deep link scheme
     'booktractor://*', 

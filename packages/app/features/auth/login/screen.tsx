@@ -1,74 +1,31 @@
-import { useState, useEffect } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import {
-  Box,
-  VStack,
-  Heading,
-  Text,
-  Input,
-  InputField,
-  Button,
-  ButtonText,
-  ButtonSpinner,
-  FormControl,
-  FormControlError,
-  FormControlErrorText,
-  Divider,
-  HStack,
-  Pressable,
-  Alert,
-  AlertIcon,
-  AlertText,
-  InfoIcon,
-} from '@gluestack-ui/themed';
+import { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSession, signIn } from '../../../lib/auth-client';
-import { useRouter } from 'solito/router';
+import { useEffect } from 'react';
+import { useRouter } from 'solito/navigation';
 
 export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
 
   const { data: session } = useSession();
   const router = useRouter();
 
-  // Redirect if already logged in
   useEffect(() => {
     if (session) {
       router.replace('/');
+      return;
     }
   }, [session, router]);
 
-  const validateForm = () => {
-    let isValid = true;
-    setEmailError('');
-    setPasswordError('');
-    setError('');
-
-    if (!email) {
-      setEmailError('Email is required');
-      isValid = false;
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      setEmailError('Please enter a valid email');
-      isValid = false;
-    }
-
-    if (!password) {
-      setPasswordError('Password is required');
-      isValid = false;
-    } else if (password.length < 6) {
-      setPasswordError('Password must be at least 6 characters');
-      isValid = false;
-    }
-
-    return isValid;
-  };
 
   const handleEmailLogin = async () => {
-    if (!validateForm()) return;
+    if (!email || !password) {
+      setError('Please enter both email and password');
+      return;
+    }
 
     setIsLoading(true);
     setError('');
@@ -81,12 +38,14 @@ export function LoginScreen() {
         onSuccess: () => {
           router.push('/');
         },
-        onError: (ctx) => {
-          setError(ctx.error.message || 'Failed to sign in. Please check your credentials.');
+        onError: (ctx: { error: { message?: string } }) => {
+          setError(ctx.error.message || 'Failed to sign in');
         },
       });
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
+      console.error(err);
+      console.error(JSON.stringify(err, null, 2));
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +62,7 @@ export function LoginScreen() {
         onSuccess: () => {
           router.push('/');
         },
-        onError: (ctx) => {
+        onError: (ctx: { error: { message?: string } }) => {
           setError(ctx.error.message || 'Failed to sign in with Google');
         },
       });
@@ -115,144 +74,187 @@ export function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={{ flex: 1 }}
-    >
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Box flex={1} bg="$white" justifyContent="center" px="$6" py="$8">
-          <Box maxWidth={400} width="100%" alignSelf="center">
-            <VStack space="lg">
-              {/* Header */}
-              <VStack space="xs">
-                <Heading size="3xl" color="$text900">
-                  Welcome Back
-                </Heading>
-                <Text size="md" color="$text600">
-                  Sign in to continue to Booktractor
-                </Text>
-              </VStack>
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.title}>Welcome Back</Text>
+        <Text style={styles.subtitle}>Sign in to continue</Text>
 
-              {/* Error Alert */}
-              {error ? (
-                <Alert action="error" variant="solid">
-                  <AlertIcon as={InfoIcon} />
-                  <AlertText>{error}</AlertText>
-                </Alert>
-              ) : null}
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
 
-              {/* Email Input */}
-              <FormControl isInvalid={!!emailError}>
-                <VStack space="xs">
-                  <Text size="sm" fontWeight="$semibold" color="$text900">
-                    Email
-                  </Text>
-                  <Input variant="outline" size="lg">
-                    <InputField
-                      placeholder="Enter your email"
-                      value={email}
-                      onChangeText={(text) => {
-                        setEmail(text);
-                        setEmailError('');
-                      }}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      autoComplete="email"
-                      editable={!isLoading}
-                    />
-                  </Input>
-                  {emailError ? (
-                    <FormControlError>
-                      <FormControlErrorText>{emailError}</FormControlErrorText>
-                    </FormControlError>
-                  ) : null}
-                </VStack>
-              </FormControl>
+        <View style={styles.form}>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!isLoading}
+            />
+          </View>
 
-              {/* Password Input */}
-              <FormControl isInvalid={!!passwordError}>
-                <VStack space="xs">
-                  <Text size="sm" fontWeight="$semibold" color="$text900">
-                    Password
-                  </Text>
-                  <Input variant="outline" size="lg">
-                    <InputField
-                      placeholder="Enter your password"
-                      value={password}
-                      onChangeText={(text) => {
-                        setPassword(text);
-                        setPasswordError('');
-                      }}
-                      secureTextEntry
-                      autoCapitalize="none"
-                      editable={!isLoading}
-                    />
-                  </Input>
-                  {passwordError ? (
-                    <FormControlError>
-                      <FormControlErrorText>{passwordError}</FormControlErrorText>
-                    </FormControlError>
-                  ) : null}
-                </VStack>
-              </FormControl>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!isLoading}
+            />
+          </View>
 
-              {/* Sign In Button */}
-              <Button
-                size="lg"
-                variant="solid"
-                action="primary"
-                onPress={handleEmailLogin}
-                isDisabled={isLoading}
-                mt="$2"
-              >
-                {isLoading ? (
-                  <ButtonSpinner />
-                ) : (
-                  <ButtonText>Sign In</ButtonText>
-                )}
-              </Button>
+          <TouchableOpacity
+            style={[styles.button, isLoading && styles.buttonDisabled]}
+            onPress={handleEmailLogin}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Sign In</Text>
+            )}
+          </TouchableOpacity>
 
-              {/* Divider */}
-              <HStack space="md" alignItems="center" my="$2">
-                <Divider flex={1} />
-                <Text size="sm" color="$text500">
-                  OR
-                </Text>
-                <Divider flex={1} />
-              </HStack>
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
-              {/* Google Sign In Button */}
-              <Button
-                size="lg"
-                variant="outline"
-                action="secondary"
-                onPress={handleGoogleLogin}
-                isDisabled={isLoading}
-              >
-                <ButtonText>Continue with Google</ButtonText>
-              </Button>
+          <TouchableOpacity
+            style={[styles.googleButton, isLoading && styles.buttonDisabled]}
+            onPress={handleGoogleLogin}
+            disabled={isLoading}
+          >
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
+          </TouchableOpacity>
 
-              {/* Register Link */}
-              <HStack justifyContent="center" mt="$4">
-                <Text size="sm" color="$text600">
-                  Don't have an account?{' '}
-                </Text>
-                <Pressable
-                  onPress={() => router.push('/auth/register')}
-                  isDisabled={isLoading}
-                >
-                  <Text size="sm" fontWeight="$semibold" color="$primary600">
-                    Sign Up
-                  </Text>
-                </Pressable>
-              </HStack>
-            </VStack>
-          </Box>
-        </Box>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <TouchableOpacity
+            onPress={() => router.push('/auth/register')}
+            disabled={isLoading}
+          >
+            <Text style={styles.linkText}>
+              Don&apos;t have an account? <Text style={styles.linkTextBold}>Sign Up</Text>
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  content: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    maxWidth: 400,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#000',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 32,
+  },
+  errorContainer: {
+    backgroundColor: '#fee',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#c00',
+    fontSize: 14,
+  },
+  form: {
+    gap: 16,
+  },
+  inputContainer: {
+    gap: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  button: {
+    backgroundColor: '#007AFF',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#ddd',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    color: '#666',
+    fontSize: 14,
+  },
+  googleButton: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  googleButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  linkText: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 14,
+    marginTop: 16,
+  },
+  linkTextBold: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+});

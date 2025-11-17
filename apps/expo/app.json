@@ -9,7 +9,11 @@
       "bundleIdentifier": "com.booktractor.app"
     },
     "android": {
-      "package": "com.booktractor.app"
+      "package": "com.booktractor.app",
+      "navigationBar": {
+        "visible": false
+      },
+      "softwareKeyboardLayoutMode": "pan"
     },
     "newArchEnabled": true,
     "experiments": {
