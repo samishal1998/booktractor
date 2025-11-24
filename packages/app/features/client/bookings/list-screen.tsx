@@ -1,22 +1,31 @@
+'use client'
+
 import { View, Text, FlatList, Pressable, ActivityIndicator } from 'react-native'
 import { useTRPC } from '../../../lib/trpc'
 import { useQuery } from '@tanstack/react-query'
-import { useRouter } from 'solito/router'
+import { useRouter } from 'solito/navigation'
 import { useSession } from '../../../lib/auth-client'
 import { BookingStatusBadge } from '../../../components/shared/BookingStatusBadge'
 import { EmptyState } from '../../../components/shared/EmptyState'
 import { useState } from 'react'
+import { BookingStatus } from '@booktractor/db/schemas'
+
+type BookingStatusValue = (typeof BookingStatus)[keyof typeof BookingStatus]
+type StatusFilter = 'all' | BookingStatusValue
 
 export function BookingsListScreen() {
   const router = useRouter()
   const { data: session } = useSession()
   const trpc = useTRPC()
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed'>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  const statusParam: BookingStatusValue | undefined =
+    statusFilter === 'all' ? undefined : statusFilter
 
   const { data: bookings, isLoading } = useQuery({
     ...trpc.client.bookings.myBookings.queryOptions({
       clientId: session?.user?.id || '',
-      status: statusFilter === 'all' ? undefined : statusFilter,
+      status: statusParam,
     }),
     enabled: !!session?.user?.id,
   })
@@ -25,8 +34,17 @@ export function BookingsListScreen() {
     router.push(`/bookings/${bookingId}`)
   }
 
-  const pendingCount = bookings?.filter((b) => b.status === 'pending' || b.status === 'approved').length || 0
-  const completedCount = bookings?.filter((b) => b.status === 'completed').length || 0
+  const normalizedBookings = bookings ?? []
+  const pendingCount = normalizedBookings.filter((b) => b.status === 'pending_renter_approval').length
+  const completedCount = normalizedBookings.filter((b) => b.status === 'approved_by_renter').length
+
+  const filterOptions: { key: StatusFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'pending_renter_approval', label: 'Pending' },
+    { key: 'approved_by_renter', label: 'Approved' },
+    { key: 'sent_back_to_client', label: 'Needs Changes' },
+    { key: 'canceled_by_client', label: 'Cancelled' },
+  ]
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
@@ -51,58 +69,30 @@ export function BookingsListScreen() {
         </View>
 
         {/* Filter Tabs */}
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Pressable
-            onPress={() => setStatusFilter('all')}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 8,
-              backgroundColor: statusFilter === 'all' ? '#3b82f6' : '#f3f4f6',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ color: statusFilter === 'all' ? 'white' : '#374151', fontWeight: '500' }}>
-              All
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setStatusFilter('pending')}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 8,
-              backgroundColor: statusFilter === 'pending' ? '#3b82f6' : '#f3f4f6',
-              alignItems: 'center',
-            }}
-          >
-            <Text
-              style={{ color: statusFilter === 'pending' ? 'white' : '#374151', fontWeight: '500' }}
-            >
-              Pending
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setStatusFilter('completed')}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              borderRadius: 8,
-              backgroundColor: statusFilter === 'completed' ? '#3b82f6' : '#f3f4f6',
-              alignItems: 'center',
-            }}
-          >
-            <Text
+        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          {filterOptions.map((option) => (
+            <Pressable
+              key={option.key}
+              onPress={() => setStatusFilter(option.key)}
               style={{
-                color: statusFilter === 'completed' ? 'white' : '#374151',
-                fontWeight: '500',
+                flexGrow: 1,
+                paddingVertical: 8,
+                borderRadius: 8,
+                backgroundColor: statusFilter === option.key ? '#3b82f6' : '#f3f4f6',
+                alignItems: 'center',
+                minWidth: '22%',
               }}
             >
-              Completed
-            </Text>
-          </Pressable>
+              <Text
+                style={{
+                  color: statusFilter === option.key ? 'white' : '#374151',
+                  fontWeight: '500',
+                }}
+              >
+                {option.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
       </View>
 
@@ -112,19 +102,19 @@ export function BookingsListScreen() {
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={{ marginTop: 16, color: '#6b7280' }}>Loading bookings...</Text>
         </View>
-      ) : !bookings || bookings.length === 0 ? (
+      ) : normalizedBookings.length === 0 ? (
         <EmptyState
           icon="📋"
           title="No Bookings Yet"
           message={
             statusFilter !== 'all'
-              ? `No ${statusFilter} bookings found`
+              ? `No ${filterOptions.find((opt) => opt.key === statusFilter)?.label.toLowerCase()} bookings found`
               : "You haven't made any bookings yet. Browse equipment to get started!"
           }
         />
       ) : (
         <FlatList
-          data={bookings}
+          data={normalizedBookings}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 16 }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -151,13 +141,18 @@ export function BookingsListScreen() {
                 <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#111827' }}>
                   #{item.id.slice(0, 8)}
                 </Text>
-                <BookingStatusBadge status={item.status} />
+                <BookingStatusBadge status={item.status as BookingStatusValue} />
               </View>
 
               {/* Machine Info */}
-              <Text style={{ color: '#6b7280', fontSize: 14, marginBottom: 8 }}>
-                Equipment ID: {item.machineTemplateId.slice(0, 8)}
-              </Text>
+              <View style={{ marginBottom: 8 }}>
+                <Text style={{ color: '#6b7280', fontSize: 14 }}>
+                  Equipment: {item.machineName}
+                </Text>
+                <Text style={{ color: '#9ca3af', fontSize: 12 }}>
+                  Code: {item.machineCode}
+                </Text>
+              </View>
 
               {/* Date Range */}
               <View
@@ -177,21 +172,18 @@ export function BookingsListScreen() {
               {/* Units and Cost */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
                 <Text style={{ color: '#6b7280', fontSize: 14 }}>
-                  {item.machineInstanceIds?.length || 0} unit(s)
+                  {item.instanceCode ? `Unit ${item.instanceCode}` : 'Unit assignment pending'}
                 </Text>
                 <Text style={{ fontWeight: 'bold', color: '#111827', fontSize: 16 }}>
-                  ${(item.totalCost / 100).toFixed(2)}
+                  ${(item.totalPrice / 100).toFixed(2)}
                 </Text>
               </View>
 
-              {/* Deposit Info */}
-              {item.depositPaid > 0 && (
-                <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f3f4f6' }}>
-                  <Text style={{ color: '#10b981', fontSize: 12 }}>
-                    Deposit paid: ${(item.depositPaid / 100).toFixed(2)}
-                  </Text>
-                </View>
-              )}
+              <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f3f4f6' }}>
+                <Text style={{ color: '#6b7280', fontSize: 12 }}>
+                  Payment status: {item.paymentStatus}
+                </Text>
+              </View>
             </Pressable>
           )}
         />

@@ -1,4 +1,4 @@
-import { BookingDetailScreen } from '@booktractor/app/features/client/bookings/detail-screen'
+import { BookingDetailScreen } from 'app/features/client/bookings/detail-screen'
 
 export default function BookingDetailPage() {
   return <BookingDetailScreen />

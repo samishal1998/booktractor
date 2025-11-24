@@ -30,7 +30,6 @@ export default function ClientMachineDetailPage() {
   const detailQuery = useQuery({
     ...trpc.client.machines.getDetails.queryOptions({
       id: machineId ?? '',
-      identifier: machineId ?? '',
     }),
     enabled: !!machineId,
   });

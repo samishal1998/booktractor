@@ -1,3 +1,4 @@
+'use client'
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { useTRPC } from '../../../lib/trpc'
 import { useQuery } from '@tanstack/react-query'
@@ -72,6 +73,19 @@ export function MachineDetailScreen() {
     )
   }
 
+  const machineCategory =
+    typeof machine.specs?.category === 'string'
+      ? machine.specs.category
+      : undefined
+
+  const locationLabel =
+    typeof machine.specs?.location === 'string' && machine.specs.location.length
+      ? machine.specs.location
+      : machine.owner?.name || 'Location shared after booking'
+
+  const activeUnits = machine.availability?.active ?? 0
+  const totalUnits = machine.availability?.total ?? 0
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: 'white' }}>
       {/* Header Image Placeholder */}
@@ -90,15 +104,23 @@ export function MachineDetailScreen() {
       <View style={{ padding: 16 }}>
         {/* Title and Category */}
         <View style={{ marginBottom: 16 }}>
-          {machine.category && (
+          {machineCategory && (
             <Text style={{ color: '#6b7280', fontSize: 14, marginBottom: 4 }}>
-              {machine.category}
+              {machineCategory}
             </Text>
           )}
           <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#111827', marginBottom: 8 }}>
             {machine.name}
           </Text>
           <Text style={{ color: '#6b7280', fontSize: 14 }}>Code: {machine.code}</Text>
+          <Text style={{ color: '#6b7280', fontSize: 14, marginTop: 4 }}>
+            Location: {locationLabel}
+          </Text>
+          {machine.owner?.name && (
+            <Text style={{ color: '#6b7280', fontSize: 14, marginTop: 2 }}>
+              Owner: {machine.owner.name}
+            </Text>
+          )}
         </View>
 
         {/* Price */}
@@ -112,7 +134,7 @@ export function MachineDetailScreen() {
             }}
           >
             <Text style={{ color: '#1e40af', fontSize: 14, marginBottom: 4 }}>Starting at</Text>
-            <PriceDisplay amount={machine.pricePerHour} />
+            <PriceDisplay priceInCents={machine.pricePerHour} />
             <Text style={{ color: '#1e40af', fontSize: 14 }}>per hour</Text>
           </View>
         )}
@@ -278,33 +300,35 @@ export function MachineDetailScreen() {
         </Pressable>
 
         {/* Stats */}
-        {machine.stats && (
-          <View
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: '#e5e7eb',
-              paddingTop: 24,
-            }}
-          >
-            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>
-              Equipment Stats
-            </Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#3b82f6' }}>
-                  {machine.stats.activeInstanceCount || 0}
-                </Text>
-                <Text style={{ color: '#6b7280', fontSize: 12 }}>Available</Text>
-              </View>
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#10b981' }}>
-                  {machine.stats.bookingCount || 0}
-                </Text>
-                <Text style={{ color: '#6b7280', fontSize: 12 }}>Total Bookings</Text>
-              </View>
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: '#e5e7eb',
+            paddingTop: 24,
+          }}
+        >
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>
+            Equipment Stats
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#3b82f6' }}>
+                {activeUnits}
+              </Text>
+              <Text style={{ color: '#6b7280', fontSize: 12 }}>
+                Active of {totalUnits}
+              </Text>
             </View>
+            {machine.averageRating && (
+              <View style={{ alignItems: 'center' }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#f59e0b' }}>
+                  {machine.averageRating.toFixed(1)}
+                </Text>
+                <Text style={{ color: '#6b7280', fontSize: 12 }}>Avg rating</Text>
+              </View>
+            )}
           </View>
-        )}
+        </View>
       </View>
     </ScrollView>
   )

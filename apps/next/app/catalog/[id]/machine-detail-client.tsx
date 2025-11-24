@@ -23,16 +23,14 @@ type MachineDetailClientProps = {
   machineId: string;
 };
 
-export default function MachineDetailClient({  }: MachineDetailClientProps) {
+export default function MachineDetailClient({ machineId }: MachineDetailClientProps) {
   const trpc = useTRPC();
   const router = useRouter();
   const { data: session } = useSession();
-  const params = useParams();
-  const machineId = params?.id as string | undefined;
+
   const query = useQuery({
     ...trpc.client.machines.getDetails.queryOptions({
-      identifier: machineId,
-      id: machineId,
+      id: machineId ?? '',
     }),
     enabled: !!machineId,
   });
@@ -225,7 +223,7 @@ export default function MachineDetailClient({  }: MachineDetailClientProps) {
             <CardContent className="space-y-2 text-sm text-slate-600">
               <div className="flex items-center gap-2 text-slate-500">
                 <MapPin className="h-4 w-4" />
-                {machine.specs?.location ?? 'Location shared after booking'}
+                {'Location shared after booking'}
               </div>
               <p>{machine.owner?.name}</p>
               <p className="text-xs text-slate-500">

@@ -1,8 +1,9 @@
+'use client'
 import { View, Text, TextInput, FlatList, Pressable, ActivityIndicator } from 'react-native'
 import { useTRPC } from '../../../lib/trpc'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useRouter } from 'solito/router'
+import { useRouter } from 'solito/navigation'
 import { MachineCard } from '../../../components/shared/MachineCard'
 import { EmptyState } from '../../../components/shared/EmptyState'
 
@@ -29,7 +30,34 @@ export function MachineBrowseScreen() {
     { id: 'loader', label: 'Loaders' },
   ]
 
-  const displayData = searchQuery || selectedCategory ? searchResults : featured
+  const displayData = searchQuery ? searchResults : featured
+  const filteredMachines = (displayData ?? []).filter((machine) => {
+    if (!selectedCategory) return true
+    const category =
+      typeof machine.specs?.category === 'string'
+        ? machine.specs.category.toLowerCase()
+        : undefined
+    return category === selectedCategory
+  })
+
+  const renderMachineCard = (item: any) => {
+    const imageUrl = Array.isArray(item.specs?.images) && item.specs.images.length > 0
+      ? item.specs.images[0]
+      : undefined
+
+    return (
+      <MachineCard
+        id={item.id}
+        name={item.name}
+        code={item.code}
+        description={item.description}
+        pricePerHour={item.pricePerHour}
+        availableCount={item.availableCount ?? 0}
+        imageUrl={imageUrl}
+        onPress={() => handleMachinePress(item.id)}
+      />
+    )
+  }
 
   const handleMachinePress = (machineId: string) => {
     router.push(`/machines/${machineId}`)
@@ -71,7 +99,7 @@ export function MachineBrowseScreen() {
             </Text>
           </Pressable>
 
-          {categories.map((cat) => (
+      {categories.map((cat) => (
             <Pressable
               key={cat.id}
               onPress={() => setSelectedCategory(cat.id)}
@@ -101,7 +129,7 @@ export function MachineBrowseScreen() {
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={{ marginTop: 16, color: '#6b7280' }}>Loading equipment...</Text>
         </View>
-      ) : !displayData || displayData.length === 0 ? (
+      ) : filteredMachines.length === 0 ? (
         <EmptyState
           icon="🚜"
           title="No Equipment Found"
@@ -113,15 +141,10 @@ export function MachineBrowseScreen() {
         />
       ) : (
         <FlatList
-          data={displayData}
+          data={filteredMachines}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 16, gap: 16 }}
-          renderItem={({ item }) => (
-            <MachineCard
-              machine={item}
-              onPress={() => handleMachinePress(item.id)}
-            />
-          )}
+          renderItem={({ item }) => renderMachineCard(item)}
         />
       )}
     </View>
