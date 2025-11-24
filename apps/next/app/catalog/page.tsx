@@ -121,7 +121,7 @@ export default function PublicCatalogPage() {
                 />
               </div>
             </div>
-            <div className="flex flex-1 flex-wrap gap-3 md:flex-none">
+            <div className="flex flex-1 flex-wrap lg:flex-row flex-col gap-3 lg:flex-none">
               <div className="flex-1 space-y-1">
                 <Label className="text-xs font-semibold uppercase text-slate-500">Start date</Label>
                 <div className="relative">

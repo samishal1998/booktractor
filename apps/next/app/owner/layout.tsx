@@ -65,7 +65,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
                 </span>
               </Link>
 
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+              <div className="hidden lg:ml-6 lg:flex lg:space-x-8 flex-wrap">
                 {navigation.map((item) => {
                   const isActive =
                     pathname === item.href ||
@@ -105,7 +105,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
           </div>
         </div>
 
-        <div className="sm:hidden border-t border-gray-200">
+        <div className="lg:hidden border-t border-gray-200">
           <div className="flex overflow-x-auto">
             {navigation.map((item) => {
               const isActive =

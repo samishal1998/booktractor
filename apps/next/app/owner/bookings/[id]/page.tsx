@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { putFileToSignedUrl } from '@/lib/upload';
 import { Loader2, Paperclip, X } from 'lucide-react';
 
+import { formatBookingStatus } from 'app/lib/services/booking';
+
 type UploadedAttachment = {
   url: string;
   name: string;
@@ -324,7 +326,7 @@ export default function BookingDetailPage() {
           <span className="text-gray-900">#{bookingId.slice(0, 8)}</span>
         </div>
 
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start flex-wrap gap-y-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
               Booking #{bookingId.slice(0, 8)}
@@ -335,7 +337,7 @@ export default function BookingDetailPage() {
                   booking.status
                 )}`}
               >
-                {booking.status}
+                {formatBookingStatus(booking.status)}
               </span>
               <span className="text-gray-600">
                 Created {new Date(booking.createdAt).toLocaleDateString()}
@@ -343,12 +345,12 @@ export default function BookingDetailPage() {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             {canApprove && (
               <button
                 onClick={handleApprove}
                 disabled={approveMutation.isPending}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 text-nowrap"
               >
                 {approveMutation.isPending ? 'Approving...' : 'Approve'}
               </button>
@@ -358,7 +360,7 @@ export default function BookingDetailPage() {
               <button
                 onClick={handleSendBack}
                 disabled={sendBackMutation.isPending}
-                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
+                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition disabled:opacity-50 text-nowrap"
               >
                 {sendBackMutation.isPending ? 'Sending...' : 'Send Back'}
               </button>
@@ -368,7 +370,7 @@ export default function BookingDetailPage() {
               <button
                 onClick={handleReject}
                 disabled={rejectMutation.isPending}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 text-nowrap"
               >
                 {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
               </button>
