@@ -1,0 +1,46 @@
+{
+  "owners": [
+    {
+      "company": "Atlas Heavy Rentals",
+      "contact": "Ava Patel",
+      "email": "ava@atlasheavy.co",
+      "password": "OwnerAtlas#123"
+    },
+    {
+      "company": "Cascade Earthworks",
+      "contact": "Liam Chen",
+      "email": "liam@cascadeearthworks.com",
+      "password": "OwnerCascade#123"
+    },
+    {
+      "company": "Summit Lift & Rigging",
+      "contact": "Maya Ortiz",
+      "email": "maya@summitlift.com",
+      "password": "OwnerSummit#123"
+    }
+  ],
+  "clients": [
+    {
+      "company": "Northwind Construction",
+      "contact": "Brooke Lang",
+      "email": "brooke@northwindbuild.com",
+      "password": "ClientNorthwind#123"
+    },
+    {
+      "company": "Cobalt Infrastructure",
+      "contact": "Ethan Reeves",
+      "email": "ethan@cobaltinfrastructure.com",
+      "password": "ClientCobalt#123"
+    },
+    {
+      "company": "Harborview Developers",
+      "contact": "Noah Clarke",
+      "email": "noah@harborviewdev.com",
+      "password": "ClientHarborview#123"
+    }
+  ],
+  "meta": {
+    "note": "Run `yarn workspace @booktractor/db db:seed` to sync these credentials into the database."
+  }
+}
+
