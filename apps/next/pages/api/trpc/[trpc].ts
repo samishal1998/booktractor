@@ -6,6 +6,9 @@ import * as trpcNext from '@trpc/server/adapters/next';
 import { appRouter } from '@booktractor/trpc/routers';
 import { auth } from '@booktractor/db/auth';
 import type { Context } from '@booktractor/trpc/trpc';
+import { db } from '@booktractor/db/client';
+import { users as usersTable } from '@booktractor/db/schemas';
+import { eq } from 'drizzle-orm';
 
 // export API handler
 export default trpcNext.createNextApiHandler({
@@ -15,6 +18,7 @@ export default trpcNext.createNextApiHandler({
     const session = await auth.api.getSession({
       headers: req.headers as any,
     });
+    const user = session?.user?.id ? await db.select().from(usersTable).where(eq(usersTable.id, session?.user?.id)) : null;
 
     return {
       session: session?.session ? {
@@ -22,10 +26,7 @@ export default trpcNext.createNextApiHandler({
         ipAddress: session.session.ipAddress ?? null,
         userAgent: session.session.userAgent ?? null,
       } : null,
-      user: session?.user ? {
-        ...session.user,
-        image: session.user.image ?? null,
-      } : null,
+      user: user ? user[0] : null,
     };
   },
   allowBatching: true,

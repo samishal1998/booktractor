@@ -7,6 +7,7 @@ import { useSession } from '@booktractor/app/lib/auth-client';
 import { useTRPC } from '@booktractor/app/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useMemo } from 'react';
 
 const statusVariant: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'success' | 'warning' }> = {
   active: { label: 'Active', variant: 'success' },
@@ -67,13 +68,7 @@ export default function MachineInstancesPage() {
     );
   }
 
-  const instances = (instancesQuery.data ?? []) as Array<{
-    id: string;
-    instanceCode: string;
-    status: string;
-    createdAt?: string;
-    updatedAt?: string;
-  }>;
+  const instances = useMemo(() => (instancesQuery.data ?? []), [instancesQuery.data]);
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">

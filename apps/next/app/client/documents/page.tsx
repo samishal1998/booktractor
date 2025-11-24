@@ -213,7 +213,7 @@ export default function ClientDocumentsPage() {
                       </td>
                       <td className="px-3 py-3 text-gray-600">{formatFileSize(doc.size)}</td>
                       <td className="px-3 py-3 text-gray-600">
-                        {new Date(doc.createdAt).toLocaleDateString()}
+                        {doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : ''}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex justify-end gap-2">

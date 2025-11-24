@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Mail, Lock, Loader2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSession, signIn } from '@booktractor/app/lib/auth-client';
 
-export default function LoginPage() {
+export function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session, isPending } = useSession();
@@ -193,4 +193,10 @@ export default function LoginPage() {
       </section>
     </div>
   );
+}
+
+export default function LoginPage() {
+  return <Suspense fallback={<div>Loading...</div>}>
+    <LoginPageInner />
+  </Suspense>;
 }
