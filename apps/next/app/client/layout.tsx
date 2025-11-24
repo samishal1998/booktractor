@@ -67,7 +67,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                 </span>
               </Link>
 
-              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+              <div className="hidden lg:ml-6 lg:flex lg:space-x-8 flex-wrap">
                 {navigation.map((item) => {
                   const isActive =
                     pathname === item.href ||

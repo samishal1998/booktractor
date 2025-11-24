@@ -1,10 +1,12 @@
 import MachineDetailClient from './machine-detail-client';
-import { useParams } from 'solito/navigation';
 
-export default function CatalogMachineDetailPage() {
-  const params = useParams();
-  const machineId = params?.id as string | undefined;
-  return <MachineDetailClient machineId={machineId ?? ''} />;
+export default async function CatalogMachineDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  return <MachineDetailClient machineId={id} />;
 }
 
 
