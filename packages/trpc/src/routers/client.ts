@@ -9,12 +9,15 @@ import {
   businessAccounts,
   userAccounts,
   payments,
+  clientDocuments,
   BookingStatus,
   PaymentStatus,
   type NewMachineBooking,
   type NewPayment,
 } from '@booktractor/db/schemas';
 import { eq, and, or, gte, lte, sql, desc, asc, like, ilike } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type Stripe from 'stripe';
 import {
   findAvailableInstances,
   calculateBookingPrice,
@@ -24,6 +27,14 @@ import {
   addBookingMessage,
   type CreateBookingRequest,
 } from 'app/lib/services/booking';
+import { getStripeClient } from '../lib/stripe';
+
+const messageAttachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().min(1).max(255),
+  contentType: z.string().min(3),
+  size: z.number().int().nonnegative().optional(),
+});
 
 // Input schemas
 const searchMachinesSchema = z.object({
@@ -35,6 +46,8 @@ const searchMachinesSchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).default('asc'),
   limit: z.number().min(1).max(100).default(20),
   offset: z.number().min(0).default(0),
+  startTime: z.string().datetime().optional(),
+  endTime: z.string().datetime().optional(),
 });
 
 const checkAvailabilitySchema = z.object({
@@ -102,17 +115,22 @@ export const clientRouter = router({
     search: publicProcedure
       .input(searchMachinesSchema)
       .query(async ({ input }) => {
+        const startTime = input.startTime ? new Date(input.startTime) : undefined;
+        const endTime = input.endTime ? new Date(input.endTime) : undefined;
+        const hasDateRange = Boolean(startTime && endTime);
+
         // Build search conditions
-        const conditions = [];
+        const conditions: SQL<unknown>[] = [];
 
         if (input.query) {
-          conditions.push(
-            or(
-              ilike(machineTemplates.name, `%${input.query}%`),
-              ilike(machineTemplates.description, `%${input.query}%`),
-              ilike(machineTemplates.code, `%${input.query}%`)
-            )
+          const searchClause = or(
+            ilike(machineTemplates.name, `%${input.query}%`),
+            ilike(machineTemplates.description, `%${input.query}%`),
+            ilike(machineTemplates.code, `%${input.query}%`)
           );
+          if (searchClause) {
+            conditions.push(searchClause);
+          }
         }
 
         if (input.minPrice !== undefined) {
@@ -128,40 +146,68 @@ export const clientRouter = router({
         //   conditions.push(sql`${machineTemplates.tags} && ${input.tags}`);
         // }
 
-        // Build order by
-        let orderByClause;
-        const direction = input.sortOrder === 'asc' ? asc : desc;
+        const activeInstancesExpr = sql<number>`
+          count(distinct case when ${machineInstances.status} = 'active'
+            then ${machineInstances.id} end)
+        `;
+
+        const conflictingBookingsExpr = hasDateRange
+          ? sql<number>`
+              count(
+                distinct case
+                  when (
+                    (${machineBookings.status} = ${BookingStatus.PENDING_RENTER_APPROVAL}
+                      or ${machineBookings.status} = ${BookingStatus.APPROVED_BY_RENTER})
+                    and ${machineBookings.startTime} < ${endTime as Date}
+                    and ${machineBookings.endTime} > ${startTime as Date}
+                  )
+                  then ${machineBookings.id}
+                end
+              )
+            `
+          : sql<number>`0`;
+
+        const directionFn = input.sortOrder === 'asc' ? asc : desc;
+        let orderByClause: SQL<unknown> = directionFn(machineTemplates.name);
 
         switch (input.sortBy) {
           case 'price':
-            orderByClause = direction(machineTemplates.pricePerHour);
+            orderByClause = directionFn(machineTemplates.pricePerHour);
             break;
           case 'availability':
-            orderByClause = desc(sql`count(distinct case when ${machineInstances.status} = 'active'
-              then ${machineInstances.id} end)`);
+            orderByClause =
+              input.sortOrder === 'asc'
+                ? asc(activeInstancesExpr)
+                : desc(activeInstancesExpr);
             break;
           case 'name':
           default:
-            orderByClause = direction(machineTemplates.name);
+            orderByClause = directionFn(machineTemplates.name);
             break;
         }
 
         const results = await db
           .select({
             template: machineTemplates,
-            availableCount: sql<number>`
-              count(distinct case when ${machineInstances.status} = 'active'
-                then ${machineInstances.id} end)
-            `,
+            availableCount: activeInstancesExpr,
+            conflictingCount: conflictingBookingsExpr,
             account: businessAccounts,
           })
           .from(machineTemplates)
           .leftJoin(machineInstances, eq(machineTemplates.id, machineInstances.templateId))
           .innerJoin(businessAccounts, eq(machineTemplates.accountId, businessAccounts.id))
-          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .leftJoin(machineBookings, eq(machineTemplates.id, machineBookings.templateId))
+          .where(
+            conditions.length > 0
+              ? and(...conditions)
+              : sql`true`
+          )
           .groupBy(machineTemplates.id, businessAccounts.id)
-          .having(sql`count(distinct case when ${machineInstances.status} = 'active'
-            then ${machineInstances.id} end) > 0`)
+          .having(
+            hasDateRange
+              ? sql`${activeInstancesExpr} > ${conflictingBookingsExpr}`
+              : sql`${activeInstancesExpr} > 0`
+          )
           .orderBy(orderByClause)
           .limit(input.limit)
           .offset(input.offset);
@@ -169,6 +215,10 @@ export const clientRouter = router({
         return results.map(row => ({
           ...row.template,
           availableCount: Number(row.availableCount),
+          conflictingCount: Number(row.conflictingCount ?? 0),
+          availableForRange: hasDateRange
+            ? Number(row.availableCount) > Number(row.conflictingCount ?? 0)
+            : Number(row.availableCount) > 0,
           ownerName: row.account.name,
         }));
       }),
@@ -536,6 +586,7 @@ export const clientRouter = router({
         bookingId: z.string().uuid(),
         content: z.string().min(1).max(1000),
         clientId: z.string(),
+        attachments: z.array(messageAttachmentSchema).max(5).optional(),
       }))
       .mutation(async ({ input }) => {
         const booking = await db
@@ -562,7 +613,8 @@ export const clientRouter = router({
         const updatedMessages = addBookingMessage(
           booking[0],
           input.clientId,
-          input.content
+          input.content,
+          input.attachments
         );
 
         const [updated] = await db
@@ -647,71 +699,150 @@ export const clientRouter = router({
     createIntent: publicProcedure
       .input(createPaymentIntentSchema)
       .mutation(async ({ input }) => {
+        const stripe = getStripeClient();
+
         const booking = await db
           .select({
             booking: machineBookings,
             template: machineTemplates,
+            payment: payments,
           })
           .from(machineBookings)
           .innerJoin(machineTemplates, eq(machineBookings.templateId, machineTemplates.id))
+          .leftJoin(payments, eq(machineBookings.paymentId, payments.id))
           .where(eq(machineBookings.id, input.bookingId))
           .limit(1);
 
-        if (!booking[0]) {
+        const bookingRow = booking[0];
+
+        if (!bookingRow) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Booking not found',
           });
         }
 
-        // Verify ownership
-        if (booking[0].booking.clientUserId !== input.clientId) {
+        if (bookingRow.booking.clientUserId !== input.clientId) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: 'Not authorized to pay for this booking',
           });
         }
 
-        // Check if booking is approved
-        if (booking[0].booking.status !== BookingStatus.APPROVED_BY_RENTER) {
+        if (bookingRow.payment?.status === PaymentStatus.COMPLETED) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'This booking is already paid',
+          });
+        }
+
+        if (bookingRow.booking.status !== BookingStatus.APPROVED_BY_RENTER) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Booking must be approved before payment',
           });
         }
 
-        // Calculate amount
         const amountCents = calculateBookingPrice(
-          booking[0].template,
-          booking[0].booking.startTime,
-          booking[0].booking.endTime
+          bookingRow.template,
+          bookingRow.booking.startTime,
+          bookingRow.booking.endTime
         );
 
-        // In a real app, we would create a Stripe PaymentIntent here
-        // For now, we'll create a placeholder payment record
-        const [payment] = await db
-          .insert(payments)
-          .values({
-            bookingId: input.bookingId,
-            provider: 'stripe',
-            externalId: `pi_${Date.now()}`, // Mock payment intent ID
-            amountCents,
-            currency: 'USD',
-            status: PaymentStatus.PENDING,
-          })
-          .returning();
+        if (amountCents <= 0) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Booking total is invalid for payment',
+          });
+        }
 
-        // Update booking with payment ID
-        await db
-          .update(machineBookings)
-          .set({ paymentId: payment.id })
-          .where(eq(machineBookings.id, input.bookingId));
+        let paymentIntent: Stripe.PaymentIntent;
+        let paymentRecord = bookingRow.payment ?? null;
+
+        if (paymentRecord) {
+          paymentIntent = await stripe.paymentIntents.retrieve(paymentRecord.externalId);
+
+          if (paymentIntent.status === 'succeeded') {
+            await db
+              .update(payments)
+              .set({ status: PaymentStatus.COMPLETED })
+              .where(eq(payments.id, paymentRecord.id));
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'This booking already has a completed payment',
+            });
+          }
+
+          if (paymentIntent.amount !== amountCents) {
+            paymentIntent = await stripe.paymentIntents.update(paymentIntent.id, {
+              amount: amountCents,
+            });
+
+            await db
+              .update(payments)
+              .set({
+                amountCents,
+                extra: {
+                  ...(paymentRecord.extra ?? {}),
+                  latestStatus: paymentIntent.status,
+                },
+              })
+              .where(eq(payments.id, paymentRecord.id));
+          }
+        } else {
+          paymentIntent = await stripe.paymentIntents.create({
+            amount: amountCents,
+            currency: 'usd',
+            automatic_payment_methods: { enabled: true },
+            metadata: {
+              bookingId: input.bookingId,
+              clientId: input.clientId,
+            },
+          });
+
+          const [insertedPayment] = await db
+            .insert(payments)
+            .values({
+              bookingId: input.bookingId,
+              provider: 'stripe',
+              externalId: paymentIntent.id,
+              amountCents,
+              currency: paymentIntent.currency.toUpperCase(),
+              status: PaymentStatus.PENDING,
+              extra: {
+                latestStatus: paymentIntent.status,
+              },
+            })
+            .returning();
+
+          if (!insertedPayment) {
+            throw new TRPCError({
+              code: 'INTERNAL_SERVER_ERROR',
+              message: 'Failed to store payment intent',
+            });
+          }
+
+          await db
+            .update(machineBookings)
+            .set({ paymentId: insertedPayment.id })
+            .where(eq(machineBookings.id, input.bookingId));
+
+          paymentRecord = insertedPayment;
+        }
+
+        if (!paymentIntent.client_secret) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Stripe did not return a client secret',
+          });
+        }
 
         return {
-          paymentIntentId: payment.externalId,
-          clientSecret: `${payment.externalId}_secret_${Date.now()}`, // Mock client secret
-          amount: amountCents,
-          currency: 'USD',
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          amount: paymentIntent.amount,
+          currency: paymentIntent.currency.toUpperCase(),
+          status: paymentRecord?.status ?? PaymentStatus.PENDING,
         };
       }),
 
@@ -724,38 +855,142 @@ export const clientRouter = router({
         clientId: z.string(),
       }))
       .mutation(async ({ input }) => {
-        // Find payment by external ID
-        const payment = await db
-          .select()
+        const stripe = getStripeClient();
+
+        const paymentRow = await db
+          .select({
+            payment: payments,
+            booking: machineBookings,
+          })
           .from(payments)
+          .innerJoin(machineBookings, eq(payments.bookingId, machineBookings.id))
           .where(eq(payments.externalId, input.paymentIntentId))
           .limit(1);
 
-        if (!payment[0]) {
+        const record = paymentRow[0];
+
+        if (!record) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Payment not found',
           });
         }
 
-        // In a real app, we would verify with Stripe that payment succeeded
-        // For now, we'll just mark it as completed
+        if (record.booking.clientUserId !== input.clientId) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Not authorized to confirm this payment',
+          });
+        }
+
+        const intent = await stripe.paymentIntents.retrieve(input.paymentIntentId);
+        const charges = await stripe.charges.list({
+          payment_intent: input.paymentIntentId,
+        });
+        const mappedStatus = mapStripePaymentStatus(intent.status);
+
         const [updated] = await db
           .update(payments)
-          .set({ status: PaymentStatus.COMPLETED })
-          .where(eq(payments.id, payment[0].id))
+          .set({
+            status: mappedStatus,
+            extra: {
+              ...(record.payment.extra ?? {}),
+              latestStatus: intent.status,
+              charges: charges.data.map((charge) => ({
+                id: charge.id,
+                receiptUrl: charge.receipt_url,
+                status: charge.status,
+                paymentMethod: charge.payment_method_details?.type,
+              })),
+            },
+          })
+          .where(eq(payments.id, record.payment.id))
           .returning();
 
         return {
-          success: true,
+          success: mappedStatus === PaymentStatus.COMPLETED,
           payment: updated,
+          stripeStatus: intent.status,
         };
+      }),
+  }),
+
+  documents: router({
+    list: publicProcedure
+      .input(
+        z.object({
+          userId: z.string(),
+        })
+      )
+      .query(async ({ input }) => {
+        const docs = await db
+          .select()
+          .from(clientDocuments)
+          .where(eq(clientDocuments.userId, input.userId))
+          .orderBy(desc(clientDocuments.createdAt));
+
+        return docs;
+      }),
+
+    save: publicProcedure
+      .input(
+        z.object({
+          userId: z.string(),
+          label: z.string().min(2),
+          category: z.string().min(2),
+          url: z.string().url(),
+          contentType: z.string().min(3),
+          size: z.number().int().nonnegative(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const [doc] = await db
+          .insert(clientDocuments)
+          .values({
+            userId: input.userId,
+            label: input.label,
+            category: input.category,
+            url: input.url,
+            contentType: input.contentType,
+            size: input.size,
+          })
+          .returning();
+
+        return doc;
+      }),
+
+    delete: publicProcedure
+      .input(
+        z.object({
+          userId: z.string(),
+          documentId: z.string().uuid(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const deleted = await db
+          .delete(clientDocuments)
+          .where(
+            and(
+              eq(clientDocuments.id, input.documentId),
+              eq(clientDocuments.userId, input.userId)
+            )
+          )
+          .returning({ id: clientDocuments.id });
+
+        if (!deleted[0]) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Document not found',
+          });
+        }
+
+        return { success: true };
       }),
   }),
 });
 
 // Helper function to get or create client account
-async function getOrCreateClientAccount(userId: string) {
+async function getOrCreateClientAccount(userId: string): Promise<typeof businessAccounts.$inferSelect> {
   // Check if user has a client account
   const existingAccount = await db
     .select({
@@ -784,6 +1019,13 @@ async function getOrCreateClientAccount(userId: string) {
     })
     .returning();
 
+  if (!newAccount) {
+    throw new TRPCError({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'Unable to create client account',
+    });
+  }
+
   // Link user to account
   await db
     .insert(userAccounts)
@@ -794,4 +1036,21 @@ async function getOrCreateClientAccount(userId: string) {
     });
 
   return newAccount;
+}
+
+function mapStripePaymentStatus(status: Stripe.PaymentIntent.Status) {
+  switch (status) {
+    case 'succeeded':
+      return PaymentStatus.COMPLETED;
+    case 'canceled':
+      return PaymentStatus.FAILED;
+    case 'processing':
+    case 'requires_payment_method':
+    case 'requires_confirmation':
+    case 'requires_action':
+    case 'requires_capture':
+      return PaymentStatus.PENDING;
+    default:
+      return PaymentStatus.PENDING;
+  }
 }

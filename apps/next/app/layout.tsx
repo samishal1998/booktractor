@@ -14,8 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <StylesProvider><Provider>{children}</Provider></StylesProvider>
+      <body className="flex flex-col items-stretch">
+        <StylesProvider>
+          <Provider>{children}</Provider>
+        </StylesProvider>
       </body>
     </html>
   )

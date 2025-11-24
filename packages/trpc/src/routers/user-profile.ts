@@ -3,6 +3,46 @@ import { publicProcedure, router } from '../trpc';
 import { db } from '@booktractor/db/client';
 import { users as usersTable } from '@booktractor/db/schemas';
 import { eq } from 'drizzle-orm';
+import { optimizeAndUploadImage } from '../lib/image-upload';
+
+const updateProfileSchema = z.object({
+  userId: z.string(),
+  name: z.string().optional(),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  image: z.string().optional(),
+});
+
+const profileFormDataInput = z.custom<FormData>(
+  (value) => typeof FormData !== 'undefined' && value instanceof FormData,
+  { message: 'Expected FormData payload' }
+);
+
+const parseProfileUpdateInput = (
+  input: z.infer<typeof updateProfileSchema> | FormData
+) => {
+  if (typeof FormData !== 'undefined' && input instanceof FormData) {
+    const payloadRaw = input.get('payload');
+    if (typeof payloadRaw !== 'string') {
+      throw new Error('Missing profile payload');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payloadRaw);
+    } catch {
+      throw new Error('Invalid profile payload JSON');
+    }
+    const data = updateProfileSchema.parse(parsed);
+    const file = input.get('image');
+    const imageFile = file instanceof Blob ? file : null;
+    return { data, imageFile };
+  }
+
+  return { data: updateProfileSchema.parse(input), imageFile: null };
+};
 
 export const userProfileRouter = router({
   // Get user profile
@@ -39,25 +79,31 @@ export const userProfileRouter = router({
 
   // Update user profile
   updateProfile: publicProcedure
-    .input(
-      z.object({
-        userId: z.string(),
-        name: z.string().optional(),
-        phone: z.string().optional(),
-        address: z.string().optional(),
-        city: z.string().optional(),
-        state: z.string().optional(),
-        zipCode: z.string().optional(),
-        image: z.string().optional(),
-      })
-    )
+    .input(z.union([updateProfileSchema, profileFormDataInput]))
     .mutation(async ({ input }) => {
-      const { userId, ...updateData } = input;
+      const { data, imageFile } = parseProfileUpdateInput(input);
+      const { userId, ...updateData } = data;
 
-      // Remove undefined values
-      const cleanData = Object.fromEntries(
-        Object.entries(updateData).filter(([_, value]) => value !== undefined)
+      let uploadedImageUrl: string | undefined;
+      if (imageFile) {
+        const result = await optimizeAndUploadImage({
+          file: imageFile,
+          entity: 'profile',
+          ownerId: userId,
+          contentType: imageFile.type,
+        });
+        uploadedImageUrl = result.url;
+      }
+
+      const cleanEntries = Object.entries(updateData).filter(
+        ([_, value]) => value !== undefined && value !== null
       );
+
+      const cleanData: Record<string, string> = Object.fromEntries(cleanEntries);
+
+      if (uploadedImageUrl) {
+        cleanData.image = uploadedImageUrl;
+      }
 
       if (Object.keys(cleanData).length === 0) {
         throw new Error('No fields to update');

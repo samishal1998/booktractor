@@ -91,6 +91,22 @@ module.exports = {
   },
   reactStrictMode: false, // reanimated doesn't support this on web
 
+  images: {
+    
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'storage.googleapis.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '**',
+        port: '',
+        pathname: '**',
+      }
+    ],
+  },
+
   ...withWebpack,
   ...withTurpopack,
 }

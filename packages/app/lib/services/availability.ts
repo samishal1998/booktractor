@@ -7,6 +7,9 @@ import type {
   AvailabilityRange,
 } from '@booktractor/db/schemas';
 
+// TODO: Flip to true once machine-level time zones are captured in availability data.
+const SHOULD_ENFORCE_AVAILABILITY_SCHEDULE = false;
+
 export interface AvailabilityCheck {
   instanceId: string;
   instanceCode: string;
@@ -21,6 +24,17 @@ export interface AvailabilityResult {
   availableInstances: AvailabilityCheck[];
   startTime: Date;
   endTime: Date;
+}
+
+function hasAvailabilitySchedule(availability?: AvailabilityJson | null) {
+  if (!availability) return false;
+  const hasBaseSlots = Boolean(
+    availability.base && Object.keys(availability.base).length > 0
+  );
+  const hasOverrides = Boolean(
+    availability.overrides && Object.keys(availability.overrides).length > 0
+  );
+  return hasBaseSlots || hasOverrides;
 }
 
 /**
@@ -93,8 +107,9 @@ export function checkInstanceAvailability(
     return { available: false, conflicts };
   }
 
-  // Then check availability schedule (if defined)
-  if (instance.availabilityJson) {
+  const scheduleDefined = hasAvailabilitySchedule(instance.availabilityJson);
+
+  if (SHOULD_ENFORCE_AVAILABILITY_SCHEDULE && scheduleDefined && instance.availabilityJson) {
     const isInSchedule = checkAvailabilitySchedule(
       instance.availabilityJson,
       startTime,

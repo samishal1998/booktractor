@@ -224,6 +224,9 @@ yarn workspace expo-app add <package>               # Add to Expo
 - `GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `GOOGLE_CLIENT_SECRET` - Google OAuth secret
 - `NEXT_PUBLIC_API_URL` - API base URL
+- `STRIPE_SECRET_KEY` - Stripe secret key (starts with `sk_`)
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key (starts with `pk_`)
+- `STRIPE_WEBHOOK_SECRET` - (Optional) webhook signing secret for local Stripe CLI
 
 ### Expo (`.env`)
 - `EXPO_PUBLIC_API_URL` - Next.js server URL

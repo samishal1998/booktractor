@@ -13,13 +13,10 @@ export const {
   useSession,
   signOut,
   signUp,
+  signIn,
 } = authClient;
 
 const email = (...args: Parameters<typeof authClient['signIn']['email']>) => {
   console.log('signIn.email', args);
   return authClient.signIn.email(...args);
-};
-export const signIn = {
-  ...authClient.signIn,
-  email,
 };
