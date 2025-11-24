@@ -1,21 +1,60 @@
 'use client';
 
-import { useTRPC } from '@booktractor/app/lib/trpc';
+import { useTRPC, useTRPCClient } from '@booktractor/app/lib/trpc';
 import { useSession } from '@booktractor/app/lib/auth-client';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Button } from '@/components/ui/button';
+import { putFileToSignedUrl } from '@/lib/upload';
+import { Loader2, Paperclip, X } from 'lucide-react';
+
+type UploadedAttachment = {
+  url: string;
+  name: string;
+  contentType: string;
+  size: number;
+};
+
+const paymentStatusMap = {
+  pending: {
+    label: 'Awaiting payment',
+    badge: 'bg-yellow-100 text-yellow-800',
+    helper: 'Client must submit payment before dispatch.',
+  },
+  completed: {
+    label: 'Paid',
+    badge: 'bg-green-100 text-green-800',
+    helper: 'Funds captured. You can begin preparing the hand-off.',
+  },
+  failed: {
+    label: 'Payment failed',
+    badge: 'bg-red-100 text-red-700',
+    helper: 'Client should retry or provide another payment method.',
+  },
+  refunded: {
+    label: 'Refunded',
+    badge: 'bg-gray-100 text-gray-700',
+    helper: 'Payment was refunded to the client.',
+  },
+};
+type OwnerPaymentStatus = keyof typeof paymentStatusMap;
 
 export default function BookingDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { data: session, isLoading: isSessionLoading } = useSession();
+  const { data: session, isPending: isSessionPending } = useSession();
   const ownerId = session?.user?.id || '';
   const bookingId = params?.id as string;
   const trpc = useTRPC();
+  const client = useTRPCClient();
   const [message, setMessage] = useState('');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<UploadedAttachment[]>([]);
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   const { data: bookings, refetch, isLoading } = useQuery({
     ...trpc.owner.bookings.listAll.queryOptions({
@@ -27,37 +66,55 @@ export default function BookingDetailPage() {
   const bookingList = (bookings ?? []) as Array<any>;
   const booking = bookingList.find((b: any) => b.id === bookingId);
 
+  const ownerBookingsPathKey = trpc.owner.bookings.listAll.pathKey;
+  const ownerMachineBookingsPathKey = trpc.owner.bookings.listByMachine.pathKey;
+  const clientBookingsDetailPathKey = trpc.client.bookings.getById.pathKey;
+  const clientBookingsPathKey = trpc.client.bookings.myBookings.pathKey;
+  const sharedBookingInvalidations = [
+    ownerBookingsPathKey,
+    ownerMachineBookingsPathKey,
+    clientBookingsDetailPathKey,
+    clientBookingsPathKey,
+  ];
+
   const approveMutation = useMutation({
-    ...trpc.owner.bookings.approve.mutationOptions(),
+    ...trpc.owner.bookings.approve.mutationOptions({
+      meta: { invalidateQueryKeys: sharedBookingInvalidations },
+    }),
     onSuccess: () => {
       refetch();
     },
   });
 
   const rejectMutation = useMutation({
-    ...trpc.owner.bookings.reject.mutationOptions(),
+    ...trpc.owner.bookings.reject.mutationOptions({
+      meta: { invalidateQueryKeys: sharedBookingInvalidations },
+    }),
     onSuccess: () => {
       refetch();
     },
   });
 
   const sendBackMutation = useMutation({
-    ...trpc.owner.bookings.sendBack.mutationOptions(),
+    ...trpc.owner.bookings.sendBack.mutationOptions({
+      meta: { invalidateQueryKeys: sharedBookingInvalidations },
+    }),
     onSuccess: () => {
       refetch();
     },
   });
 
   const messageMutation = useMutation({
-    ...trpc.owner.bookings.sendMessage.mutationOptions(),
+    ...trpc.owner.bookings.sendMessage.mutationOptions({
+      meta: { invalidateQueryKeys: sharedBookingInvalidations },
+    }),
     onSuccess: () => {
       setMessage('');
-      setIsSendingMessage(false);
       refetch();
     },
   });
 
-  if (isSessionLoading) {
+  if (isSessionPending) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
@@ -155,16 +212,23 @@ export default function BookingDetailPage() {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
     setIsSendingMessage(true);
-    await messageMutation.mutateAsync({
-      ownerId,
-      bookingId,
-      content: message.trim(),
-    });
+    try {
+      await messageMutation.mutateAsync({
+        ownerId,
+        bookingId,
+        content: message.trim(),
+        attachments: pendingAttachments.length ? pendingAttachments : undefined,
+      });
+      setPendingAttachments([]);
+      setAttachmentError(null);
+    } finally {
+      setIsSendingMessage(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -184,9 +248,69 @@ export default function BookingDetailPage() {
     }
   };
 
+  const formatFileSize = (size?: number) => {
+    if (!size) return '';
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleAttachmentSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files?.length) return;
+    const files = Array.from(event.target.files);
+    event.target.value = '';
+    const remainingSlots = Math.max(0, 5 - pendingAttachments.length);
+
+    if (!remainingSlots) {
+      setAttachmentError('You can attach up to 5 files per message.');
+      return;
+    }
+
+    try {
+      setAttachmentError(null);
+      setAttachmentsUploading(true);
+      const uploads: UploadedAttachment[] = [];
+      for (const file of files.slice(0, remainingSlots)) {
+        const contentType = file.type || 'application/octet-stream';
+        const { uploadUrl, publicUrl } = await client.storage.getUploadUrl.mutate({
+          entity: 'message',
+          entityId: bookingId,
+          contentType,
+        });
+        await putFileToSignedUrl({ uploadUrl, file, contentType });
+        uploads.push({
+          url: publicUrl,
+          name: file.name,
+          contentType,
+          size: file.size,
+        });
+      }
+      setPendingAttachments((prev) => [...prev, ...uploads]);
+    } catch (error) {
+      setAttachmentError(
+        error instanceof Error ? error.message : 'Failed to upload attachments'
+      );
+    } finally {
+      setAttachmentsUploading(false);
+    }
+  };
+
+  const handleRemoveAttachment = (url: string) => {
+    setPendingAttachments((prev) => prev.filter((file) => file.url !== url));
+  };
+
   const canApprove = booking.status === 'pending_renter_approval';
   const canReject = booking.status === 'pending_renter_approval';
   const canSendBack = booking.status === 'pending_renter_approval';
+  const bookingPaymentStatus = resolvePaymentStatus(booking.paymentStatus);
+  const totalEstimateCents = calculateEstimateCents(
+    booking.startTime,
+    booking.endTime,
+    booking.pricePerHour
+  );
+  const paymentAmountCents = booking.paymentAmountCents ?? totalEstimateCents;
+  const paymentCurrency = booking.paymentCurrency ?? 'USD';
+  const paymentMeta = paymentStatusMap[bookingPaymentStatus];
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -336,6 +460,25 @@ export default function BookingDetailPage() {
                         </span>
                       </div>
                       <p className="text-gray-700">{msg.content}</p>
+                      {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {msg.attachments.map((file: any) => (
+                            <a
+                              key={file.url}
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700 transition hover:border-blue-300 hover:text-blue-600"
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              <span className="font-medium">{file.name}</span>
+                              <span className="text-gray-400">
+                                {formatFileSize(file.size)}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -351,6 +494,65 @@ export default function BookingDetailPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Send a message to the client
               </label>
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => attachmentInputRef.current?.click()}
+                  disabled={attachmentsUploading}
+                >
+                  {attachmentsUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Paperclip className="mr-2 h-4 w-4" />
+                      Attach files
+                    </>
+                  )}
+                </Button>
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  accept="image/*,.pdf,.doc,.docx"
+                  multiple
+                  className="hidden"
+                  onChange={handleAttachmentSelect}
+                />
+                <span className="text-xs text-gray-500">
+                  Up to 5 attachments per message.
+                </span>
+              </div>
+              {pendingAttachments.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {pendingAttachments.map((file) => (
+                    <span
+                      key={file.url}
+                      className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700"
+                    >
+                      <Paperclip className="h-3 w-3" />
+                      <span>{file.name}</span>
+                      <span className="text-gray-400">
+                        {formatFileSize(file.size)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(file.url)}
+                        className="text-gray-400 transition hover:text-red-500"
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {attachmentError && (
+                <p className="mb-3 text-sm text-red-600">{attachmentError}</p>
+              )}
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -359,13 +561,12 @@ export default function BookingDetailPage() {
                   placeholder="Type your message..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <button
+                <Button
                   type="submit"
-                  disabled={!message.trim() || isSendingMessage}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!message.trim() || isSendingMessage || attachmentsUploading}
                 >
-                  {isSendingMessage ? 'Sending...' : 'Send'}
-                </button>
+                  {isSendingMessage ? 'Sending…' : 'Send'}
+                </Button>
               </div>
             </form>
           </div>
@@ -375,37 +576,46 @@ export default function BookingDetailPage() {
         <div className="space-y-6">
           {/* Payment Summary */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="font-bold text-gray-900 mb-4">Payment Summary</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-900">Payment</h3>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${paymentMeta.badge}`}>
+                {paymentMeta.label}
+              </span>
+            </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 text-sm text-gray-600">
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600">Hourly Rate</span>
+                <span>Amount</span>
+                <span className="font-semibold text-gray-900">
+                  {formatCurrency(paymentAmountCents, paymentCurrency)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Hourly rate</span>
                 <span className="text-gray-900">
-                  {booking.pricePerHour
-                    ? `$${(booking.pricePerHour / 100).toFixed(2)}/hr`
-                    : 'Not set'}
+                  {booking.pricePerHour ? formatCurrency(booking.pricePerHour, paymentCurrency, true) : 'Not set'}
                 </span>
               </div>
-
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600">Estimated Total</span>
-                <span className="font-medium text-gray-900">
-                  {booking.pricePerHour
-                    ? (() => {
-                        const hours =
-                          (new Date(booking.endTime).getTime() -
-                            new Date(booking.startTime).getTime()) /
-                          (1000 * 60 * 60);
-                        const estimate = Math.max(1, hours) * booking.pricePerHour;
-                        return `$${(estimate / 100).toFixed(2)}`;
-                      })()
-                    : 'N/A'}
+                <span>Estimate (hrs)</span>
+                <span className="text-gray-900">
+                  {booking.pricePerHour ? formatCurrency(totalEstimateCents, paymentCurrency) : 'N/A'}
                 </span>
               </div>
-
-              <p className="text-xs text-gray-500">
-                Final totals and deposits will sync once payments are captured.
-              </p>
+              <p className="text-xs text-gray-500">{paymentMeta.helper}</p>
+              {booking.paymentExternalId && (
+                <p className="text-xs text-gray-500">
+                  Stripe intent:{' '}
+                  <code className="rounded bg-gray-100 px-1 py-0.5 text-gray-700">
+                    {booking.paymentExternalId}
+                  </code>
+                </p>
+              )}
+              {booking.paymentCreatedAt && (
+                <p className="text-xs text-gray-400">
+                  Updated {new Date(booking.paymentCreatedAt).toLocaleString()}
+                </p>
+              )}
             </div>
           </div>
 
@@ -468,4 +678,34 @@ export default function BookingDetailPage() {
       </div>
     </div>
   );
+}
+
+function resolvePaymentStatus(status?: string): OwnerPaymentStatus {
+  if (!status) return 'pending';
+  return status in paymentStatusMap ? (status as OwnerPaymentStatus) : 'pending';
+}
+
+function calculateEstimateCents(
+  start: string | Date,
+  end: string | Date,
+  pricePerHour?: number | null
+) {
+  if (!pricePerHour) return 0;
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  if (Number.isNaN(startTime) || Number.isNaN(endTime) || endTime <= startTime) {
+    return pricePerHour;
+  }
+  const hours = Math.max(1, (endTime - startTime) / (1000 * 60 * 60));
+  return Math.ceil(hours * pricePerHour);
+}
+
+function formatCurrency(value?: number | null, currency = 'USD', perHour = false) {
+  if (value === null || value === undefined) return '—';
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  });
+  const formatted = formatter.format(value / 100);
+  return perHour ? `${formatted}/hr` : formatted;
 }

@@ -39,9 +39,17 @@ const updateStatusSchema = z.object({
   message: z.string().optional(),
 });
 
+const attachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().min(1).max(255),
+  contentType: z.string().min(3),
+  size: z.number().int().nonnegative().optional(),
+});
+
 const sendMessageSchema = z.object({
   bookingId: z.string().uuid(),
   content: z.string().min(1).max(1000),
+  attachments: z.array(attachmentSchema).max(5).optional(),
 });
 
 export const bookingsRouter = router({
@@ -512,7 +520,8 @@ export const bookingsRouter = router({
       const updatedMessages = addBookingMessage(
         booking[0].booking,
         ctx.user.id,
-        input.content
+        input.content,
+        input.attachments
       );
 
       const [updated] = await db

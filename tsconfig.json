@@ -3,7 +3,8 @@
     "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "app/*": ["./packages/app/*"]
+      "app/*": ["./packages/app/*"],
+      "@booktractor/utils/*": ["./packages/utils/src/*"]
     },
     "baseUrl": ".",
     "jsx": "react-jsx"

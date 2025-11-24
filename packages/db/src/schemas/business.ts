@@ -25,10 +25,19 @@ export type AvailabilityJson = {
   overrides?: Record<string, AvailabilityRange[]>;
 };
 
+export type BookingAttachment = {
+  url: string;
+  name: string;
+  contentType: string;
+  size?: number;
+  uploadedBy?: string;
+};
+
 export type BookingMessage = {
   sender_id: string;
   content: string;
   ts: string;
+  attachments?: BookingAttachment[];
 };
 
 // Multi-tenancy: Business accounts
@@ -153,6 +162,25 @@ export const machineBookings = pgTable(
   })
 );
 
+export const clientDocuments = pgTable(
+  "client_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    category: text("category").notNull().default("general"),
+    url: text("url").notNull(),
+    contentType: text("content_type").notNull(),
+    size: integer("size").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => ({
+    userIdx: index("client_documents_user_idx").on(table.userId),
+  })
+);
+
 // Payments
 export const payments = pgTable(
   "payments",
@@ -212,6 +240,9 @@ export type NewMachineInstance = typeof machineInstances.$inferInsert;
 
 export type MachineBooking = typeof machineBookings.$inferSelect;
 export type NewMachineBooking = typeof machineBookings.$inferInsert;
+
+export type ClientDocument = typeof clientDocuments.$inferSelect;
+export type NewClientDocument = typeof clientDocuments.$inferInsert;
 
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;

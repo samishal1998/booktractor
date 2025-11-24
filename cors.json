@@ -1,0 +1,28 @@
+[
+    {
+      "maxAgeSeconds": 36000,
+      "method": [
+        "GET",
+        "HEAD",
+        "DELETE",
+        "PUT"
+      ],
+      "origin": [
+        "*",
+        "http://localhost:3000",
+        "http://localhost:39539",
+        "http://localhost:42811",
+        "http://contractors-f1d51.web.app",
+        "https://contractors-f1d51.web.app",
+        "http://moqawlaty.web.app",
+        "https://moqawlaty.web.app",
+        "http://moqawlaty.org",
+        "https://moqawlaty.org",
+        "http://www.moqawlaty.org",
+        "https://www.moqawlaty.org"
+      ],
+      "responseHeader": [
+        "Content-Type"
+      ]
+    }
+  ]

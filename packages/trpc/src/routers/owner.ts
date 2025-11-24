@@ -8,14 +8,18 @@ import {
   machineBookings,
   businessAccounts,
   userAccounts,
+  payments,
   BookingStatus,
+  PaymentStatus,
   type NewMachineTemplate,
   type NewMachineInstance,
   type AvailabilityJson,
 } from '@booktractor/db/schemas';
-import { eq, and, or, gte, lte, sql, desc, asc } from 'drizzle-orm';
+import { eq, and, or, gte, lte, sql, desc, asc, ilike } from 'drizzle-orm';
 import { generateInstanceCodes } from 'app/lib/services/availability';
 import { addBookingMessage, canTransitionStatus } from 'app/lib/services/booking';
+import { parseFilters, parseSorters } from '@booktractor/utils/drizzler';
+import { optimizeAndUploadImage } from '../lib/image-upload';
 
 const availabilityInputSchema = z
   .object({
@@ -59,6 +63,13 @@ const createMachineSchema = z.object({
 
 const updateMachineSchema = createMachineSchema.partial().extend({
   id: z.string().uuid(),
+});
+
+const messageAttachmentSchema = z.object({
+  url: z.string().url(),
+  name: z.string().min(1).max(255),
+  contentType: z.string().min(3),
+  size: z.number().int().nonnegative().optional(),
 });
 
 const normalizeAvailabilityInput = (
@@ -126,6 +137,74 @@ const normalizeAvailabilityInput = (
   return Object.keys(result).length ? result : {};
 };
 
+const formDataInput = z.custom<FormData>(
+  (value) => typeof FormData !== 'undefined' && value instanceof FormData,
+  { message: 'Expected FormData payload' }
+);
+
+const sanitizeImageList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+};
+
+const mergeImagesIntoSpecs = (
+  specs: Record<string, unknown> | undefined,
+  uploadedImages: string[]
+): Record<string, unknown> | undefined => {
+  const baseSpecs = specs ? { ...specs } : undefined;
+  const existingImages = sanitizeImageList((baseSpecs as { images?: unknown })?.images);
+  if (baseSpecs && 'images' in baseSpecs) {
+    delete (baseSpecs as { images?: unknown }).images;
+  }
+  const finalImages = [...existingImages, ...uploadedImages];
+  if (!baseSpecs && !finalImages.length) {
+    return undefined;
+  }
+  return {
+    ...(baseSpecs ?? {}),
+    ...(finalImages.length ? { images: finalImages } : {}),
+  };
+};
+
+const parseMachineMutationInput = <T extends z.ZodTypeAny>(
+  schema: T,
+  input: z.infer<T> | FormData
+) => {
+  if (typeof FormData !== 'undefined' && input instanceof FormData) {
+    const payloadRaw = input.get('payload');
+    if (typeof payloadRaw !== 'string') {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Missing JSON payload for machine mutation',
+      });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payloadRaw);
+    } catch {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Invalid JSON payload for machine mutation',
+      });
+    }
+    const data = schema.parse(parsed);
+    const files = input
+      .getAll('images')
+      .filter((value): value is File => value instanceof File);
+    return { data, files };
+  }
+
+  return {
+    data: schema.parse(input),
+    files: [] as File[],
+  };
+};
+
 const listBookingsSchema = z.object({
   ownerId: z.string(), // Temporary: pass owner ID
   machineId: z.string().uuid().optional(),
@@ -140,6 +219,8 @@ const listBookingsSchema = z.object({
   endDate: z.string().optional(),
   limit: z.number().min(1).max(100).default(50),
   offset: z.number().min(0).default(0),
+  filtersJson: z.string().optional(),
+  sortJson: z.string().optional(),
 });
 
 const updateBookingStatusSchema = z.object({
@@ -162,8 +243,10 @@ export const ownerRouter = router({
      * Create a new machine with instances
      */
     create: publicProcedure
-      .input(createMachineSchema)
+      .input(z.union([createMachineSchema, formDataInput]))
       .mutation(async ({ input }) => {
+        const { data, files } = parseMachineMutationInput(createMachineSchema, input);
+
         // Get or create owner's business account
         let accountId: string;
 
@@ -176,7 +259,7 @@ export const ownerRouter = router({
           .innerJoin(businessAccounts, eq(userAccounts.accountId, businessAccounts.id))
           .where(
             and(
-              eq(userAccounts.userId, input.ownerId),
+              eq(userAccounts.userId, data.ownerId),
               eq(businessAccounts.type, 'renter')
             )
           )
@@ -189,7 +272,7 @@ export const ownerRouter = router({
           const renterResults = await db
             .insert(businessAccounts)
             .values({
-              name: `${input.ownerId}'s Rental Business`,
+              name: `${data.ownerId}'s Rental Business`,
               type: 'renter',
             })
             .returning();
@@ -203,7 +286,7 @@ export const ownerRouter = router({
           await db
             .insert(userAccounts)
             .values({
-              userId: input.ownerId,
+              userId: data.ownerId,
               accountId: newAccount.id,
               role: 'account_admin',
             });
@@ -212,10 +295,34 @@ export const ownerRouter = router({
         }
 
         // Create machine template
-        const { ownerId, availabilityJson, ...machineData } = input;
+        const { ownerId, availabilityJson, ...machineData } = data;
         const normalizedAvailability = normalizeAvailabilityInput(
           availabilityJson
         );
+
+        const uploadedImages = files.length
+          ? await Promise.all(
+              files.map((file) =>
+                optimizeAndUploadImage({
+                  file,
+                  entity: 'machine',
+                  ownerId,
+                  contentType: file.type,
+                })
+              )
+            )
+          : [];
+
+        const specsWithImages = mergeImagesIntoSpecs(
+          (machineData.specs as Record<string, unknown> | undefined) ?? undefined,
+          uploadedImages.map((upload) => upload.url)
+        );
+
+        if (specsWithImages) {
+          machineData.specs = specsWithImages;
+        } else {
+          delete machineData.specs;
+        }
         const newTemplate: NewMachineTemplate = {
           ...machineData,
           accountId,
@@ -228,8 +335,8 @@ export const ownerRouter = router({
           .returning();
 
         // Auto-generate instances
-        if (template && input.totalCount > 0) {
-          const instanceCodes = generateInstanceCodes(input.code, input.totalCount);
+        if (template && data.totalCount > 0) {
+          const instanceCodes = generateInstanceCodes(data.code, data.totalCount);
           const instances: NewMachineInstance[] = instanceCodes.map(code => ({
             templateId: template.id,
             instanceCode: code,
@@ -242,7 +349,7 @@ export const ownerRouter = router({
 
         return {
           ...template,
-          instancesCreated: input.totalCount,
+          instancesCreated: data.totalCount,
         };
       }),
 
@@ -250,9 +357,10 @@ export const ownerRouter = router({
      * Update machine details
      */
     update: publicProcedure
-      .input(updateMachineSchema)
+      .input(z.union([updateMachineSchema, formDataInput]))
       .mutation(async ({ input }) => {
-        const { id, ownerId, availabilityJson, ...updateData } = input;
+        const { data, files } = parseMachineMutationInput(updateMachineSchema, input);
+        const { id, ownerId, availabilityJson, ...updateData } = data;
 
         // Verify ownership (in real app, this would be from auth context)
         const template = await db
@@ -268,10 +376,47 @@ export const ownerRouter = router({
           });
         }
 
+        const effectiveOwnerId = ownerId ?? data.ownerId ?? null;
+
+        if (files.length && !effectiveOwnerId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Owner ID is required when uploading images',
+          });
+        }
+
         const normalizedAvailability = normalizeAvailabilityInput(availabilityJson);
         const updatePayload: Partial<typeof machineTemplates.$inferInsert> = {
           ...updateData,
         };
+
+        const uploadedImages = files.length
+          ? await Promise.all(
+              files.map((file) =>
+                optimizeAndUploadImage({
+                  file,
+                  entity: 'machine',
+                  ownerId: effectiveOwnerId!,
+                  entityId: id,
+                  contentType: file.type,
+                })
+              )
+            )
+          : [];
+
+        const mergedSpecs =
+          updateData.specs !== undefined || uploadedImages.length
+            ? mergeImagesIntoSpecs(
+                (updateData.specs as Record<string, unknown> | undefined) ?? undefined,
+                uploadedImages.map((upload) => upload.url)
+              )
+            : undefined;
+
+        if (mergedSpecs !== undefined) {
+          updatePayload.specs = mergedSpecs;
+        } else if (updateData.specs !== undefined || uploadedImages.length) {
+          updatePayload.specs = undefined;
+        }
 
         if (normalizedAvailability !== undefined) {
           updatePayload.availabilityJson = normalizedAvailability;
@@ -313,6 +458,8 @@ export const ownerRouter = router({
       .input(z.object({
         ownerId: z.string(),
         includeArchived: z.boolean().default(false),
+        filtersJson: z.string().optional(),
+        sortJson: z.string().optional(),
       }))
       .query(async ({ input }) => {
         // Get owner's account
@@ -335,6 +482,57 @@ export const ownerRouter = router({
         }
 
         // Get templates with instance counts and booking stats
+        const filters = parseFilters(input.filtersJson);
+        const sorters = parseSorters(input.sortJson);
+
+        const dynamicWhere: any[] = [];
+        if (filters) {
+          for (const filter of filters.filters) {
+            if (filter.field === 'search' && typeof filter.value === 'string') {
+              const pattern = `%${filter.value}%`;
+              dynamicWhere.push(
+                or(
+                  ilike(machineTemplates.name, pattern),
+                  ilike(machineTemplates.code, pattern)
+                )
+              );
+            }
+          }
+        }
+
+        const orderClauses: any[] = [];
+        if (sorters?.length) {
+          for (const sorter of sorters) {
+            const direction = sorter.direction === 'desc' ? 'desc' : 'asc';
+            switch (sorter.field) {
+              case 'name':
+                orderClauses.push(
+                  direction === 'desc'
+                    ? desc(machineTemplates.name)
+                    : asc(machineTemplates.name)
+                );
+                break;
+              case 'pricePerHour':
+                orderClauses.push(
+                  direction === 'desc'
+                    ? desc(machineTemplates.pricePerHour)
+                    : asc(machineTemplates.pricePerHour)
+                );
+                break;
+              case 'createdAt':
+              default:
+                orderClauses.push(
+                  direction === 'desc'
+                    ? desc(machineTemplates.createdAt)
+                    : asc(machineTemplates.createdAt)
+                );
+                break;
+            }
+          }
+        } else {
+          orderClauses.push(desc(machineTemplates.createdAt));
+        }
+
         const templates = await db
           .select({
             template: machineTemplates,
@@ -353,9 +551,14 @@ export const ownerRouter = router({
           .from(machineTemplates)
           .leftJoin(machineInstances, eq(machineTemplates.id, machineInstances.templateId))
           .leftJoin(machineBookings, eq(machineTemplates.id, machineBookings.templateId))
-          .where(eq(machineTemplates.accountId, account[0].accountId))
+          .where(
+            and(
+              eq(machineTemplates.accountId, account[0].accountId),
+              ...(dynamicWhere.length ? dynamicWhere : [])
+            )
+          )
           .groupBy(machineTemplates.id)
-          .orderBy(desc(machineTemplates.createdAt));
+          .orderBy(...orderClauses);
 
         return templates.map(row => ({
           ...row.template,
@@ -366,6 +569,77 @@ export const ownerRouter = router({
             activeBookingCount: Number(row.activeBookingCount),
           },
         }));
+      }),
+
+    /**
+     * Get single machine detail
+     */
+    detail: publicProcedure
+      .input(z.object({
+        ownerId: z.string(),
+        machineId: z.string().uuid(),
+      }))
+      .query(async ({ input }) => {
+        const account = await db
+          .select({
+            accountId: userAccounts.accountId,
+          })
+          .from(userAccounts)
+          .innerJoin(businessAccounts, eq(userAccounts.accountId, businessAccounts.id))
+          .where(
+            and(
+              eq(userAccounts.userId, input.ownerId),
+              eq(businessAccounts.type, 'renter')
+            )
+          )
+          .limit(1);
+
+        if (!account[0]) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Owner account missing' });
+        }
+
+        const rows = await db
+          .select({
+            template: machineTemplates,
+            instanceCount: sql<number>`count(distinct ${machineInstances.id})`,
+            activeInstanceCount: sql<number>`
+              count(distinct case when ${machineInstances.status} = 'active' then ${machineInstances.id} end)
+            `,
+            bookingCount: sql<number>`
+              count(distinct ${machineBookings.id})
+            `,
+            activeBookingCount: sql<number>`
+              count(distinct case when ${machineBookings.status} = 'approved_by_renter'
+                and ${machineBookings.endTime} > now() then ${machineBookings.id} end)
+            `,
+          })
+          .from(machineTemplates)
+          .leftJoin(machineInstances, eq(machineTemplates.id, machineInstances.templateId))
+          .leftJoin(machineBookings, eq(machineTemplates.id, machineBookings.templateId))
+          .where(
+            and(
+              eq(machineTemplates.accountId, account[0].accountId),
+              eq(machineTemplates.id, input.machineId)
+            )
+          )
+          .groupBy(machineTemplates.id)
+          .limit(1);
+
+        const row = rows[0];
+
+        if (!row) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Machine not found' });
+        }
+
+        return {
+          ...row.template,
+          stats: {
+            instanceCount: Number(row.instanceCount),
+            activeInstanceCount: Number(row.activeInstanceCount),
+            bookingCount: Number(row.bookingCount),
+            activeBookingCount: Number(row.activeBookingCount),
+          },
+        };
       }),
   }),
 
@@ -399,24 +673,92 @@ export const ownerRouter = router({
         }
 
         // Build query conditions
-        const conditions = [
-          sql`${machineTemplates.accountId} = ${account[0].accountId}`
-        ];
+        const filters = parseFilters(input.filtersJson);
+        const sorters = parseSorters(input.sortJson);
+
+        let whereExpression = eq(
+          machineTemplates.accountId,
+          account[0].accountId
+        );
 
         if (input.machineId) {
-          conditions.push(eq(machineBookings.templateId, input.machineId));
+          const next = and(
+            whereExpression,
+            eq(machineBookings.templateId, input.machineId)
+          );
+          whereExpression = next ?? whereExpression;
         }
 
         if (input.status) {
-          conditions.push(eq(machineBookings.status, input.status));
+          const next = and(
+            whereExpression,
+            eq(machineBookings.status, input.status)
+          );
+          whereExpression = next ?? whereExpression;
         }
 
         if (input.startDate) {
-          conditions.push(gte(machineBookings.startTime, new Date(input.startDate)));
+          const next = and(
+            whereExpression,
+            gte(machineBookings.startTime, new Date(input.startDate))
+          );
+          whereExpression = next ?? whereExpression;
         }
 
         if (input.endDate) {
-          conditions.push(lte(machineBookings.endTime, new Date(input.endDate)));
+          const next = and(
+            whereExpression,
+            lte(machineBookings.endTime, new Date(input.endDate))
+          );
+          whereExpression = next ?? whereExpression;
+        }
+
+        if (filters) {
+          for (const filter of filters.filters) {
+            if (filter.field === 'search' && typeof filter.value === 'string') {
+              const pattern = `%${filter.value}%`;
+              const next = and(
+                whereExpression,
+                or(
+                  ilike(machineBookings.id, pattern),
+                  ilike(machineTemplates.name, pattern),
+                  ilike(businessAccounts.name, pattern)
+                )
+              );
+              whereExpression = next ?? whereExpression;
+            }
+            if (
+              filter.field === 'machineId' &&
+              typeof filter.value === 'string'
+            ) {
+              const next = and(
+                whereExpression,
+                eq(machineBookings.templateId, filter.value)
+              );
+              whereExpression = next ?? whereExpression;
+            }
+          }
+        }
+
+        const orderClauses: any[] = [];
+        if (sorters?.length) {
+          for (const sorter of sorters) {
+            const direction = sorter.direction === 'asc' ? asc : desc;
+            switch (sorter.field) {
+              case 'startTime':
+                orderClauses.push(direction(machineBookings.startTime));
+                break;
+              case 'endTime':
+                orderClauses.push(direction(machineBookings.endTime));
+                break;
+              case 'createdAt':
+              default:
+                orderClauses.push(direction(machineBookings.createdAt));
+                break;
+            }
+          }
+        } else {
+          orderClauses.push(desc(machineBookings.createdAt));
         }
 
         const bookings = await db
@@ -425,15 +767,17 @@ export const ownerRouter = router({
             instance: machineInstances,
             template: machineTemplates,
             clientAccount: businessAccounts,
+            payment: payments,
           })
           .from(machineBookings)
           .innerJoin(machineInstances, eq(machineBookings.machineInstanceId, machineInstances.id))
           .innerJoin(machineTemplates, eq(machineBookings.templateId, machineTemplates.id))
           .innerJoin(businessAccounts, eq(machineBookings.clientAccountId, businessAccounts.id))
-          .where(and(...conditions))
+          .leftJoin(payments, eq(machineBookings.paymentId, payments.id))
+          .where(whereExpression)
           .limit(input.limit)
           .offset(input.offset)
-          .orderBy(desc(machineBookings.createdAt));
+          .orderBy(...orderClauses);
 
         return bookings.map(row => ({
           ...row.booking,
@@ -442,6 +786,11 @@ export const ownerRouter = router({
           machineCode: row.template.code,
           pricePerHour: row.template.pricePerHour,
           clientName: row.clientAccount.name,
+          paymentStatus: row.payment?.status ?? PaymentStatus.PENDING,
+          paymentAmountCents: row.payment?.amountCents ?? null,
+          paymentCurrency: row.payment?.currency ?? 'USD',
+          paymentExternalId: row.payment?.externalId ?? null,
+          paymentCreatedAt: row.payment?.createdAt ?? null,
         }));
       }),
 
@@ -520,6 +869,7 @@ export const ownerRouter = router({
         bookingId: z.string().uuid(),
         content: z.string().min(1).max(1000),
         ownerId: z.string(),
+        attachments: z.array(messageAttachmentSchema).max(5).optional(),
       }))
       .mutation(async ({ input }) => {
         const booking = await db
@@ -538,7 +888,8 @@ export const ownerRouter = router({
         const updatedMessages = addBookingMessage(
           booking[0],
           input.ownerId,
-          input.content
+          input.content,
+          input.attachments
         );
 
         const [updated] = await db

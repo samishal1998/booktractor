@@ -1,7 +1,8 @@
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { useTRPC } from '../../../lib/trpc'
 import { useQuery } from '@tanstack/react-query'
-import { useRouter, useParams } from 'solito/router'
+import { useRouter } from 'solito/router'
+import { useParams } from 'solito/navigation'
 import { PriceDisplay } from '../../../components/shared/PriceDisplay'
 import { useState } from 'react'
 
@@ -18,7 +19,7 @@ export function MachineDetailScreen() {
   const { data: machine, isLoading } = useQuery(
     trpc.client.machines.getDetails.queryOptions({
       id: machineId,
-    })
+    }),
   )
 
   const { data: availability } = useQuery({
@@ -235,15 +236,15 @@ export function MachineDetailScreen() {
                   <Text style={{ color: '#166534', fontSize: 14 }}>
                     {availability.availableCount} unit(s) available
                   </Text>
-                  {availability.totalCost && (
+                  {availability.totalPrice && (
                     <Text style={{ color: '#166534', fontSize: 14, marginTop: 4 }}>
-                      Total cost: ${(availability.totalCost / 100).toFixed(2)}
+                      Total cost: ${(availability.totalPrice / 100).toFixed(2)}
                     </Text>
                   )}
                 </View>
               ) : (
                 <Text style={{ color: '#991b1b', fontSize: 14 }}>
-                  {availability.reason || 'Equipment not available for selected dates'}
+                  {'Equipment not available for selected dates'}
                 </Text>
               )}
             </View>

@@ -11,6 +11,7 @@ import { availabilityRouter } from './availability';
 import { ownerRouter } from './owner';
 import { clientRouter } from './client';
 import { userProfileRouter } from './user-profile';
+import { storageRouter } from './storage';
 
 export const appRouter = router({
   // Legacy user endpoints (can be removed later)
@@ -45,6 +46,7 @@ export const appRouter = router({
   owner: ownerRouter,
   client: clientRouter,
   profile: userProfileRouter,
+  storage: storageRouter,
 
   // Example endpoints (can be removed later)
   examples: {

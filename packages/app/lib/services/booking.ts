@@ -5,7 +5,8 @@ import type {
   MachineBooking,
   NewMachineBooking,
   BookingStatus,
-  BookingMessage
+  BookingMessage,
+  BookingAttachment,
 } from '@booktractor/db/schemas';
 import { findAvailableInstances } from './availability';
 
@@ -204,12 +205,14 @@ export function canTransitionStatus(
 export function addBookingMessage(
   booking: MachineBooking,
   senderId: string,
-  content: string
+  content: string,
+  attachments?: BookingAttachment[]
 ): BookingMessage[] {
   const newMessage: BookingMessage = {
     sender_id: senderId,
     content,
     ts: new Date().toISOString(),
+    ...(attachments && attachments.length ? { attachments } : {}),
   };
 
   return [...(booking.messages || []), newMessage];

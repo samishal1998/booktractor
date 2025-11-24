@@ -1,20 +1,47 @@
 import type { AppRouter } from '@booktractor/trpc/routers'
 import { createTRPCContext } from '@trpc/tanstack-react-query'
-import { QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryClient, type QueryKey } from '@tanstack/react-query'
 
+type MutationMeta = {
+  invalidateQueryKeys?: QueryKey[]
+  skipInvalidate?: boolean
+}
 
 export const { TRPCProvider, useTRPC, useTRPCClient } =
   createTRPCContext<AppRouter>()
 export function makeQueryClient() {
-  return new QueryClient({
+  let queryClient: QueryClient
+
+  const mutationCache = new MutationCache({
+    onSuccess: async (_data, _variables, _context, mutation) => {
+      const meta = mutation.options.meta as MutationMeta | undefined
+      if (!queryClient || meta?.skipInvalidate) {
+        return
+      }
+      if (meta?.invalidateQueryKeys?.length) {
+        await Promise.all(
+          meta.invalidateQueryKeys.map((queryKey) =>
+            queryClient.invalidateQueries({ queryKey, refetchType: 'active' })
+          )
+        )
+        return
+      }
+      await queryClient.invalidateQueries({ refetchType: 'active' })
+    },
+  })
+
+  queryClient = new QueryClient({
+    mutationCache,
     defaultOptions: {
       queries: {
-        // With SSR, we usually want to set some default staleTime
-        // above 0 to avoid refetching immediately on the client
         staleTime: 60 * 1000,
+        refetchInterval: 20 * 1000,
+        refetchIntervalInBackground: true,
       },
     },
   })
+
+  return queryClient
 }
 let browserQueryClient: QueryClient | undefined = undefined
 export function getQueryClient() {

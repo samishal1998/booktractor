@@ -34,3 +34,10 @@ export default trpcNext.createNextApiHandler({
     console.error('tRPC Error:', opts.error);
   },
 });
+
+export const config = {
+  api: {
+    bodyParser: false,
+    responseLimit: false,
+  },
+};

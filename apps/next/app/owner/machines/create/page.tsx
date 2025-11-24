@@ -1,69 +1,49 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import type { AvailabilityJson } from '@booktractor/db/schemas';
 import { useSession } from '@booktractor/app/lib/auth-client';
 import { useTRPC } from '@booktractor/app/lib/trpc';
-
-const DAY_OPTIONS = [
-  { key: 'mon', label: 'Monday' },
-  { key: 'tue', label: 'Tuesday' },
-  { key: 'wed', label: 'Wednesday' },
-  { key: 'thu', label: 'Thursday' },
-  { key: 'fri', label: 'Friday' },
-  { key: 'sat', label: 'Saturday' },
-  { key: 'sun', label: 'Sunday' },
-] as const;
-
-type DayKey = typeof DAY_OPTIONS[number]['key'];
-
-type DayScheduleState = Record<
-  DayKey,
-  {
-    enabled: boolean;
-    start: string;
-    end: string;
-  }
->;
-
-type OverrideEntry = {
-  id: string;
-  date: string;
-  start: string;
-  end: string;
-};
-
-type AvailabilityInputPayload = {
-  base?: Record<string, Array<{ start: string; end: string }>>;
-  overrides?: Record<string, Array<{ start: string; end: string }>>;
-};
-
-const buildDefaultDaySchedule = (): DayScheduleState => ({
-  mon: { enabled: true, start: '08:00', end: '18:00' },
-  tue: { enabled: true, start: '08:00', end: '18:00' },
-  wed: { enabled: true, start: '08:00', end: '18:00' },
-  thu: { enabled: true, start: '08:00', end: '18:00' },
-  fri: { enabled: true, start: '08:00', end: '18:00' },
-  sat: { enabled: true, start: '08:00', end: '14:00' },
-  sun: { enabled: false, start: '08:00', end: '12:00' },
-});
-
-const generateOverrideId = () =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `override-${Math.random().toString(36).slice(2)}`;
+import {
+  AvailabilityEditor,
+  createEmptyAvailabilityState,
+  formStateToAvailabilityInput,
+  type AvailabilityFormState,
+} from '@/components/owner/availability-editor';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { ImagePlus, Trash2 } from 'lucide-react';
 
 export default function CreateMachinePage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const trpc = useTRPC();
-  const { data: session, isLoading: isSessionLoading } = useSession();
+  const { data: session, isPending: isSessionLoading } = useSession();
   const ownerId = session?.user?.id || '';
 
-  const createMutation = useMutation({
-    ...trpc.owner.machines.create.mutationOptions(),
+  const ownerMachinesListPathKey = trpc.owner.machines.list.pathKey;
+  const ownerMachineDetailPathKey = trpc.owner.machines.detail.pathKey;
+  const clientCatalogSearchPathKey = trpc.client.machines.search.pathKey;
+  const clientCatalogFeaturedPathKey = trpc.client.machines.featured.pathKey;
+  const clientMachineDetailPathKey = trpc.client.machines.getDetails.pathKey;
+  const clientMachineAvailabilityPathKey = trpc.client.machines.checkAvailability.pathKey;
+  const machineInvalidations = [
+    ownerMachinesListPathKey,
+    ownerMachineDetailPathKey,
+    clientCatalogSearchPathKey,
+    clientCatalogFeaturedPathKey,
+    clientMachineDetailPathKey,
+    clientMachineAvailabilityPathKey,
+  ];
+
+    const createMutation = useMutation({
+    ...trpc.owner.machines.create.mutationOptions({
+      meta: { invalidateQueryKeys: machineInvalidations },
+    }),
     onSuccess: () => {
       router.push('/owner/machines');
     },
@@ -78,117 +58,99 @@ export default function CreateMachinePage() {
     totalCount: '1',
   });
 
-  const [daySchedule, setDaySchedule] = useState<DayScheduleState>(
-    buildDefaultDaySchedule()
+  const [availabilityState, setAvailabilityState] = useState<AvailabilityFormState>(
+    () => createEmptyAvailabilityState()
   );
-  const [overrides, setOverrides] = useState<OverrideEntry[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
+  const [pendingImages, setPendingImages] = useState<Array<{ id: string; file: File; preview: string }>>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
-  const toggleDay = (key: DayKey) => {
-    setDaySchedule((prev) => ({
-      ...prev,
-      [key]: { ...prev[key], enabled: !prev[key].enabled },
-    }));
-  };
-
-  const updateDayTime = (key: DayKey, field: 'start' | 'end', value: string) => {
-    setDaySchedule((prev) => ({
-      ...prev,
-      [key]: { ...prev[key], [field]: value },
-    }));
-  };
-
-  const addOverrideEntry = () => {
-    setOverrides((prev) => [
-      ...prev,
-      {
-        id: generateOverrideId(),
-        date: '',
-        start: '08:00',
-        end: '18:00',
-      },
-    ]);
-  };
-
-  const updateOverrideEntry = (
-    id: string,
-    field: Exclude<keyof OverrideEntry, 'id'>,
-    value: string
-  ) => {
-    setOverrides((prev) =>
-      prev.map((entry) =>
-        entry.id === id ? { ...entry, [field]: value } : entry
-      )
-    );
-  };
-
-  const removeOverrideEntry = (id: string) => {
-    setOverrides((prev) => prev.filter((entry) => entry.id !== id));
-  };
-
-  const convertDailySlot = (start: string, end: string) => {
-    if (!start || !end) return null;
-    const slotStart = new Date(`1970-01-01T${start}:00.000Z`);
-    const slotEnd = new Date(`1970-01-01T${end}:00.000Z`);
-    if (
-      Number.isNaN(slotStart.getTime()) ||
-      Number.isNaN(slotEnd.getTime()) ||
-      slotStart >= slotEnd
-    ) {
-      return null;
-    }
-    return { start: slotStart, end: slotEnd };
-  };
-
-  const convertOverrideSlot = (date: string, start: string, end: string) => {
-    if (!date || !start || !end) return null;
-    const slotStart = new Date(`${date}T${start}:00.000Z`);
-    const slotEnd = new Date(`${date}T${end}:00.000Z`);
-    if (
-      Number.isNaN(slotStart.getTime()) ||
-      Number.isNaN(slotEnd.getTime()) ||
-      slotStart >= slotEnd
-    ) {
-      return null;
-    }
-    return { start: slotStart, end: slotEnd };
-  };
-
-  const buildAvailabilityPayload = (): AvailabilityInputPayload | undefined => {
-    const baseEntries: NonNullable<AvailabilityInputPayload['base']> = {};
-    DAY_OPTIONS.forEach(({ key }) => {
-      const schedule = daySchedule[key];
-      if (!schedule || !schedule.enabled) return;
-      const slot = convertDailySlot(schedule.start, schedule.end);
-      if (!slot) return;
-      baseEntries[key] = [
-        {
-          start: slot.start.toISOString(),
-          end: slot.end.toISOString(),
-        },
-      ];
-    });
-
-    const overrideEntries: NonNullable<AvailabilityInputPayload['overrides']> = {};
-    overrides.forEach((entry) => {
-      if (!entry.date) return;
-      const slot = convertOverrideSlot(entry.date, entry.start, entry.end);
-      if (!slot) return;
-      overrideEntries[entry.date] = [
-        {
-          start: slot.start.toISOString(),
-          end: slot.end.toISOString(),
-        },
-      ];
-    });
-
-    if (!Object.keys(baseEntries).length && !Object.keys(overrideEntries).length) {
-      return undefined;
-    }
-
-    return {
-      base: Object.keys(baseEntries).length ? baseEntries : undefined,
-      overrides: Object.keys(overrideEntries).length ? overrideEntries : undefined,
+  useEffect(() => {
+    return () => {
+      pendingImages.forEach((image) => URL.revokeObjectURL(image.preview));
     };
+  }, [pendingImages]);
+
+  const specsPayload = (overrides?: { images?: string[] }) => {
+    const specs: Record<string, unknown> = {};
+    if (formData.category.trim()) {
+      specs.category = formData.category.trim();
+    }
+    const images = overrides?.images ?? (existingImages.length ? existingImages : undefined);
+    if (images?.length) {
+      specs.images = images;
+    }
+    return Object.keys(specs).length ? specs : undefined;
+  };
+
+  const buildSubmissionPayload = () => {
+    const availabilityPayload = formStateToAvailabilityInput(availabilityState);
+    const parsedPrice = parseInt(formData.pricePerHour || '0', 10);
+    const basePayload = {
+      ownerId,
+      name: formData.name,
+      code: formData.code,
+      description: formData.description || undefined,
+      pricePerHour: Number.isNaN(parsedPrice) ? 0 : parsedPrice * 100,
+      totalCount: parseInt(formData.totalCount),
+      availabilityJson: availabilityPayload,
+      specs: specsPayload({ images: existingImages }),
+    };
+
+    if (!pendingImages.length) {
+      return basePayload;
+    }
+
+    const payload = new FormData();
+    payload.append('payload', JSON.stringify(basePayload));
+    pendingImages.forEach((image, index) => {
+      payload.append(
+        'images',
+        image.file,
+        image.file.name || `machine-image-${index + 1}.jpg`
+      );
+    });
+    return payload;
+  };
+
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files?.length) return;
+    const files = Array.from(event.target.files);
+    event.target.value = '';
+    const next = files
+      .filter((file) => {
+        if (!file.type.startsWith('image/')) {
+          setImageError('Only image files are supported');
+          return false;
+        }
+        return true;
+      })
+      .map((file) => ({
+        id:
+          typeof self !== 'undefined' && self.crypto?.randomUUID
+            ? self.crypto.randomUUID()
+            : `${Date.now()}-${Math.random()}`,
+        file,
+        preview: URL.createObjectURL(file),
+      }));
+    if (!next.length) return;
+    setImageError(null);
+    setPendingImages((prev) => [...prev, ...next]);
+  };
+
+  const handleRemoveExistingImage = (url: string) => {
+    setExistingImages((prev) => prev.filter((image) => image !== url));
+  };
+
+  const handleRemovePendingImage = (id: string) => {
+    setPendingImages((prev) => {
+      const target = prev.find((image) => image.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.preview);
+      }
+      return prev.filter((image) => image.id !== id);
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -200,22 +162,51 @@ export default function CreateMachinePage() {
     }
 
     try {
-      const availabilityPayload = buildAvailabilityPayload();
-      const parsedPrice = parseInt(formData.pricePerHour || '0', 10);
-
-      await createMutation.mutateAsync({
-        ownerId,
-        name: formData.name,
-        code: formData.code,
-        description: formData.description || undefined,
-        pricePerHour: Number.isNaN(parsedPrice) ? 0 : parsedPrice * 100,
-        totalCount: parseInt(formData.totalCount),
-        availabilityJson: availabilityPayload,
-      });
+      const submission = buildSubmissionPayload();
+      await createMutation.mutateAsync(submission as any);
+      pendingImages.forEach((image) => URL.revokeObjectURL(image.preview));
+      setPendingImages([]);
     } catch (error) {
       console.error('Failed to create machine:', error);
       setIsSubmitting(false);
+      return;
     }
+    setIsSubmitting(false);
+  };
+
+  const renderExistingImages = () => {
+    if (!existingImages.length) {
+      return (
+        <p className="text-sm text-gray-500">
+          No photos yet. Upload at least one to help clients recognize this machine.
+        </p>
+      );
+    }
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {existingImages.map((image) => (
+          <div
+            key={image}
+            className="relative h-40 overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
+          >
+            <Image
+              src={image}
+              alt="Machine photo"
+              fill
+              sizes="(max-width: 768px) 100vw, 50vw"
+              className="object-cover"
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-2 inline-flex items-center rounded-full bg-white/90 p-1 text-gray-700 shadow"
+              onClick={() => handleRemoveExistingImage(image)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
   };
 
   if (isSessionLoading) {
@@ -262,33 +253,25 @@ export default function CreateMachinePage() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Equipment Name *
-              </label>
-              <input
-                type="text"
+              <Label className="mb-1 block">Equipment Name *</Label>
+              <Input
                 required
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., John Deere 6120M Tractor"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Equipment Code *
-              </label>
-              <input
-                type="text"
+              <Label className="mb-1 block">Equipment Code *</Label>
+              <Input
                 required
                 value={formData.code}
                 onChange={(e) =>
                   setFormData({ ...formData, code: e.target.value })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., JD6120M"
               />
               <p className="text-sm text-gray-500 mt-1">
@@ -297,31 +280,23 @@ export default function CreateMachinePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
-              </label>
-              <input
-                type="text"
+              <Label className="mb-1 block">Category</Label>
+              <Input
                 value={formData.category}
                 onChange={(e) =>
                   setFormData({ ...formData, category: e.target.value })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., Tractor, Excavator, Bulldozer"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
+              <Label className="mb-1 block">Description</Label>
+              <Textarea
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                rows={4}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Describe the equipment, specifications, and any special features..."
               />
             </div>
@@ -336,10 +311,8 @@ export default function CreateMachinePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Price per Hour ($)
-              </label>
-              <input
+              <Label className="mb-1 block">Price per Hour ($)</Label>
+              <Input
                 type="number"
                 min="0"
                 step="0.01"
@@ -347,16 +320,13 @@ export default function CreateMachinePage() {
                 onChange={(e) =>
                   setFormData({ ...formData, pricePerHour: e.target.value })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="0.00"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Total Units *
-              </label>
-              <input
+              <Label className="mb-1 block">Total Units *</Label>
+              <Input
                 type="number"
                 min="1"
                 required
@@ -364,7 +334,6 @@ export default function CreateMachinePage() {
                 onChange={(e) =>
                   setFormData({ ...formData, totalCount: e.target.value })
                 }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="1"
               />
               <p className="text-sm text-gray-500 mt-1">
@@ -374,144 +343,94 @@ export default function CreateMachinePage() {
           </div>
         </div>
 
-        {/* Weekly Availability */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Weekly Availability</h2>
+        {/* Availability */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-bold text-gray-900">Availability</h2>
             <p className="text-sm text-gray-600">
-              Define the default hours this machine can be booked on each weekday.
+              Configure the weekly schedule and override specific dates.
             </p>
           </div>
-          <div className="space-y-3">
-            {DAY_OPTIONS.map(({ key, label }) => {
-              const schedule = daySchedule[key];
-              return (
-                <div
-                  key={key}
-                  className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center"
-                >
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={schedule.enabled}
-                      onChange={() => toggleDay(key)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    {label}
-                  </label>
-                  <div className="flex items-center gap-2 md:col-span-3">
-                    <input
-                      type="time"
-                      value={schedule.start}
-                      disabled={!schedule.enabled}
-                      onChange={(e) => updateDayTime(key, 'start', e.target.value)}
-                      className="w-full md:w-40 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                    />
-                    <span className="text-sm text-gray-500">to</span>
-                    <input
-                      type="time"
-                      value={schedule.end}
-                      disabled={!schedule.enabled}
-                      onChange={(e) => updateDayTime(key, 'end', e.target.value)}
-                      className="w-full md:w-40 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                    />
-                  </div>
+          <div className="mt-6">
+            <AvailabilityEditor
+              value={availabilityState}
+              onChange={setAvailabilityState}
+            />
+          </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
 
-        {/* Specific Overrides */}
+        {/* Media Uploads */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                Specific Date Overrides
-              </h2>
-              <p className="text-sm text-gray-600">
-                Use overrides when availability differs on a particular date (holiday,
-                maintenance window, etc.).
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={addOverrideEntry}
-              className="text-sm font-semibold text-blue-600 hover:text-blue-700"
-            >
-              + Add Override
-            </button>
-          </div>
-
-          {overrides.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No overrides added. Machines will use the weekly schedule above.
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-bold text-gray-900">Media</h2>
+            <p className="text-sm text-gray-600">
+              Photos are optimized and uploaded when you save this machine.
             </p>
-          ) : (
-            <div className="space-y-3">
-              {overrides.map((entry) => (
+          </div>
+          {renderExistingImages()}
+          {pendingImages.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {pendingImages.map((image) => (
                 <div
-                  key={entry.id}
-                  className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center"
+                  key={image.id}
+                  className="relative h-40 overflow-hidden rounded-lg border border-dashed border-emerald-300 bg-emerald-50"
                 >
-                  <input
-                    type="date"
-                    value={entry.date}
-                    onChange={(e) =>
-                      updateOverrideEntry(entry.id, 'date', e.target.value)
-                    }
-                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  <Image
+                    src={image.preview}
+                    alt="Pending upload"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    className="object-cover"
+                    unoptimized
                   />
-                  <input
-                    type="time"
-                    value={entry.start}
-                    onChange={(e) =>
-                      updateOverrideEntry(entry.id, 'start', e.target.value)
-                    }
-                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <span className="hidden md:flex justify-center text-sm text-gray-500">
-                    to
+                  <span className="absolute left-2 top-2 rounded-full bg-white/80 px-2 py-1 text-xs font-semibold text-emerald-700">
+                    Pending upload
                   </span>
-                  <input
-                    type="time"
-                    value={entry.end}
-                    onChange={(e) =>
-                      updateOverrideEntry(entry.id, 'end', e.target.value)
-                    }
-                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
                   <button
                     type="button"
-                    onClick={() => removeOverrideEntry(entry.id)}
-                    className="text-sm text-red-600 hover:text-red-700"
+                    className="absolute right-2 top-2 inline-flex items-center rounded-full bg-white/90 p-1 text-gray-700 shadow"
+                    onClick={() => handleRemovePendingImage(image.id)}
                   >
-                    Remove
+                    <Trash2 className="h-4 w-4" />
                   </button>
-                </div>
-              ))}
+                              </div>
+                            ))}
             </div>
           )}
+          <div className="flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => imageInputRef.current?.click()}
+              className="flex items-center gap-2"
+            >
+              <ImagePlus className="h-4 w-4" />
+              Add photo
+            </Button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            {imageError && <p className="text-sm text-red-600">{imageError}</p>}
+          </div>
         </div>
 
         {/* Form Actions */}
         <div className="flex justify-end gap-4">
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={() => router.back()}
-            className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
           >
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || createMutation.isPending}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting || createMutation.isPending
-              ? 'Creating...'
-              : 'Create Equipment'}
-          </button>
+          </Button>
+          <Button type="submit" disabled={isSubmitting || createMutation.isPending}>
+            {isSubmitting || createMutation.isPending ? 'Creating...' : 'Create Machine'}
+          </Button>
         </div>
 
         {createMutation.isError && (

@@ -26,8 +26,14 @@
     ],
     "baseUrl": ".",
     "paths": {
+      "@/*": [
+        "./*"
+      ],
       "app/*": [
         "../../packages/app/*"
+      ],
+      "@booktractor/utils/*": [
+        "../../packages/utils/src/*"
       ]
     }
   },

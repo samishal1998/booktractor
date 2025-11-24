@@ -1,0 +1,18 @@
+{
+  "version": "0.0.0",
+  "name": "@booktractor/utils",
+  "main": "./src/drizzler/index.js",
+  "sideEffects": false,
+  "types": "./src/drizzler/index.d.ts",
+  "exports": {
+    "./drizzler": {
+      "types": "./src/drizzler/index.d.ts",
+      "import": "./src/drizzler/index.js",
+      "require": "./src/drizzler/index.js",
+      "default": "./src/drizzler/index.js"
+    }
+  },
+  "dependencies": {
+    "@samyx/drizzler-filters-sorters": "0.0.5"
+  }
+}
